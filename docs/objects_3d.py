@@ -12,7 +12,7 @@ def write_svg(filename: str, view_port_origin=(-100, -50, 30)):
     max_dimension = max(*Compound(children=visible + hidden).bounding_box().size)
     exporter = ExportSVG(scale=100 / max_dimension)
     exporter.add_layer("Visible")
-    exporter.add_layer("Hidden", line_color=(99, 99, 99), line_type=LineType.ISO_DOT)
+    exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
     exporter.add_shape(visible, layer="Visible")
     exporter.add_shape(hidden, layer="Hidden")
     exporter.write(f"assets/{filename}.svg")
@@ -77,3 +77,14 @@ with BuildPart() as example_9:
     Wedge(1, 1, 1, 0, 0, 0.5, 0.5)
     # [Ex. 9]
     write_svg("wedge_example")
+
+# [Ex. 10]
+with BuildPart() as example_10:
+    Box(30, 20, 20)
+    Box(20, 30, 20)
+    Box(20, 20, 30)
+    with Locations((-10, 0, 0)):
+        Box(40, 23, 23)
+    ConvexPolyhedron(example_10.vertices())
+    # [Ex. 10]
+    write_svg("convex_polyhedron_example")

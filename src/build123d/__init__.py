@@ -1,46 +1,103 @@
 """build123d import definitions"""
+
 from build123d.build_common import *
+from build123d.build_constants import *
+from build123d.build_enums import *
+from build123d.sheet_utils import *
 from build123d.build_line import *
-from build123d.build_sketch import *
 from build123d.build_part import *
+from build123d.build_sheet import *
+from build123d.build_sketch import *
 from build123d.exporters import *
 from build123d.geometry import *
-from build123d.topology import *
-from build123d.build_enums import *
 from build123d.importers import *
-from build123d.operations_generic import *
-from build123d.operations_part import *
-from build123d.operations_sketch import *
+from build123d.import_dxf import import_dxf
+from build123d.joints import *
+from build123d.mesher import *
+from build123d.objects_curve import *
 from build123d.objects_part import *
 from build123d.objects_sketch import *
-from build123d.objects_curve import *
-from build123d.mesher import *
+from build123d.operations_generic import *
+from build123d.operations_part import *
+from build123d.operations_sheet import *
+from build123d.operations_sketch import *
+from build123d.pack import *
+from build123d.topology import *
+from build123d.drafting import *
+from build123d.persistence import modify_copyreg
+from build123d.exporters3d import *
+from build123d.text import available_fonts, FontManager
+from build123d.brep_from_stl import detect_primitives
+from build123d.build_constants import (
+    MC,
+    MM,
+    CM,
+    M,
+    IN,
+    FT,
+    THOU,
+    UNITS_PER_METER,
+    G,
+    KG,
+    G_PER_LB,
+    LB,
+    UNITS_PER_KILOGRAM,
+)
 from .version import version as __version__
 
+modify_copyreg()
+
 __all__ = [
-    # Measurement Units
+    # Length Constants
+    "MC",
     "MM",
     "CM",
     "M",
     "IN",
     "FT",
+    "THOU",
+    # Unit Conversions
+    "UNITS_PER_METER",
+    # Mass Constants
+    "G",
+    "KG",
+    "G_PER_LB",
+    "LB",
+    # Unit Conversions
+    "UNITS_PER_KILOGRAM",
     # Enums
     "Align",
     "ApproxOption",
     "AngularDirection",
+    "BendPosition",
     "CenterOf",
+    "ContinuityLevel",
+    "Convexity",
+    "Extrinsic",
+    "FlangeLength",
     "FontStyle",
     "FrameMethod",
     "GeomType",
+    "HeadType",
+    "HemType",
+    "SheetSurface",
+    "Intrinsic",
     "Keep",
     "Kind",
+    "Sagitta",
     "LengthMode",
     "MeshType",
     "Mode",
+    "NumberDisplay",
+    "PageSize",
+    "Tangency",
     "PositionMode",
+    "PrecisionMode",
+    "ReliefType",
     "Select",
     "Side",
     "SortBy",
+    "TextAlign",
     "Transition",
     "Unit",
     "Until",
@@ -51,13 +108,25 @@ __all__ = [
     "GridLocations",
     "BuildLine",
     "BuildPart",
+    "BuildSheet",
+    "SheetMetalParameters",
     "BuildSketch",
     # 1D Curve Objects
+    "BaseCurveObject",
+    "BaseEdgeObject",
     "BaseLineObject",
+    "Airfoil",
     "Bezier",
+    "BlendCurve",
+    "BSpline",
     "CenterArc",
+    "ConstrainedArcs",
+    "ConstrainedLines",
+    "DoubleTangentArc",
     "EllipticalCenterArc",
     "EllipticalStartArc",
+    "ParabolicCenterArc",
+    "HyperbolicCenterArc",
     "FilletPolyline",
     "Helix",
     "IntersectingLine",
@@ -71,9 +140,14 @@ __all__ = [
     "JernArc",
     "ThreePointArc",
     # 2D Sketch Objects
+    "ArrowHead",
+    "Arrow",
     "BaseSketchObject",
     "Circle",
+    "Draft",
+    "DimensionLine",
     "Ellipse",
+    "ExtensionLine",
     "Polygon",
     "Rectangle",
     "RectangleRounded",
@@ -82,26 +156,32 @@ __all__ = [
     "SlotCenterPoint",
     "SlotCenterToCenter",
     "SlotOverall",
+    "Superellipse",
     "Text",
+    "TechnicalDrawing",
     "Trapezoid",
+    "Triangle",
     # 3D Part Objects
     "BasePartObject",
-    "CounterBoreHole",
-    "CounterSinkHole",
-    "Hole",
     "Box",
     "Cone",
+    "ConvexPolyhedron",
+    "CounterBoreHole",
+    "CounterSinkHole",
     "Cylinder",
+    "Hole",
     "Sphere",
     "Torus",
     "Wedge",
     # Direct API Classes
     "BoundBox",
+    "OrientedBoundBox",
     "Rotation",
     "Rot",
     "Pos",
     "RotationLike",
     "ShapeList",
+    "topo_distance_to",
     "Axis",
     "Color",
     "Curve",
@@ -111,6 +191,7 @@ __all__ = [
     "Edge",
     "Wire",
     "Face",
+    "UVFrame",
     "Matrix",
     "Solid",
     "Shell",
@@ -118,6 +199,7 @@ __all__ = [
     "Plane",
     "Compound",
     "Location",
+    "GeomEncoder",
     "Joint",
     "RigidJoint",
     "RevoluteJoint",
@@ -125,6 +207,8 @@ __all__ = [
     "LinearJoint",
     "CylindricalJoint",
     "BallJoint",
+    "DraftAngleError",
+    "FontManager",
     # Exporter classes
     "Export2D",
     "ExportDXF",
@@ -133,26 +217,52 @@ __all__ = [
     "DotLength",
     "Mesher",
     # Importer functions
+    "detect_primitives",
     "import_brep",
+    "import_dxf",
     "import_step",
+    "jog",
     "import_stl",
     "import_svg",
     "import_svg_as_buildline_code",
     # Other functions
-    "polar",
     "delta",
+    "edges_to_wires",
     "new_edges",
+    "pack",
+    "polar",
+    "available_fonts",
+    # Context aware selectors
+    "solids",
+    "faces",
+    "wires",
+    "edges",
+    "vertices",
+    "solid",
+    "face",
+    "wire",
+    "edge",
+    "vertex",
     # Operations
     "add",
+    "insert",
+    "bend",
+    "bend_relief",
     "bounding_box",
     "chamfer",
+    "corner_relief",
+    "draft",
     "extrude",
     "fillet",
+    "flange",
+    "full_round",
+    "hem",
     "loft",
     "make_brake_formed",
     "make_face",
     "make_hull",
     "mirror",
+    "miter",
     "offset",
     "project",
     # "project_points",
@@ -162,5 +272,18 @@ __all__ = [
     "section",
     "split",
     "sweep",
+    "sheet_shells",
     "thicken",
+    "unfold",
+    "trace",
+    # Topology Exploration
+    "topo_explore_connected_edges",
+    "topo_explore_common_vertex",
+    # 3D Exporters
+    "export_step",
+    "export_gltf",
+    "export_stl",
+    "export_brep",
+    "export_obj",
+    "export_to_pcbway",
 ]

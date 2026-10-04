@@ -12,7 +12,7 @@ Objects and arithmetic
 
 :math:`C^2` is the set of all ``Sketch`` objects ``s`` with ``s._dim = 2``
 
-:math:`C^1` is the set of all ``Curve`` objects ``c`` with ``c._dim = 3``
+:math:`C^1` is the set of all ``Curve`` objects ``c`` with ``c._dim = 1``
 
 **Neutral elements:**
 
@@ -29,7 +29,7 @@ Objects and arithmetic
 
 :math:`B^2 := \lbrace` ``Sketch``, ``Rectangle``, ``Circle``, ``Ellipse``, ``Rectangle``, ``Polygon``, ``RegularPolygon``, ``Text``, ``Trapezoid``, ``SlotArc``, ``SlotCenterPoint``, ``SlotCenterToCenter``, ``SlotOverall`` :math:`\rbrace`
 
-:math:`B^1 := \lbrace` ``Curve``, ``Bezier``, ``FilletPolyline``, ``PolarLine``, ``Polyline``, ``Spline``, ``Helix``, ``CenterArc``, ``EllipticalCenterArc``, ``RadiusArc``, ``SagittaArc``, ``TangentArc``, ``ThreePointArc``, ``JernArc`` :math:`\rbrace`
+:math:`B^1 := \lbrace` ``Curve``, ``Bezier``, ``FilletPolyline``, ``PolarLine``, ``Polyline``, ``Spline``, ``Helix``, ``CenterArc``, ``EllipticalCenterArc``, ``ParabolicCenterArc``, ``HyperbolicCenterArc``, ``RadiusArc``, ``SagittaArc``, ``TangentArc``, ``ThreePointArc``, ``JernArc`` :math:`\rbrace`
 
 with :math:`B^3 \subset C^3, B^2 \subset C^2` and :math:`B^1 \subset C^1`
 
@@ -49,8 +49,13 @@ with :math:`B^3 \subset C^3, B^2 \subset C^2` and :math:`B^1 \subset C^1`
 
     :math:`\; a \; \& \; b :=` ``a.intersect(b)`` for each operation
 
-    * :math:`\&` is not defined for :math:`n=1` in build123d 
+    * :math:`\&` is not defined for :math:`n=1` in build123d
     * The following relationship holds: :math:`a \; \& \; b = (a + b) + -(a + (-b)) + -(b + (-a))`
+
+
+**Note:** ``Shell`` is not a member of :math:`C^2`. Adding to a ``Shell`` sews faces
+into a single connected surface instead of fusing them, and raises ``ValueError``
+when they cannot be sewn - see :ref:`key_concepts_algebra`.
 
 
 **Abelian groups**
@@ -61,17 +66,17 @@ with :math:`B^3 \subset C^3, B^2 \subset C^2` and :math:`B^1 \subset C^1`
 * This definition also includes that neither ``-`` nor ``&`` are commutative.
 
 
-Locations, planes and location arithmentic
+Locations, planes and location arithmetic
 ---------------------------------------------
 
 **Set definitions:**
 
-:math:`L  := \lbrace` ``Location((x, y, z), (a, b, c))`` :math:`: x,y,z \in R \land a,b,c \in R \rbrace\;` 
-    
+:math:`L  := \lbrace` ``Location((x, y, z), (a, b, c))`` :math:`: x,y,z \in R \land a,b,c \in R \rbrace\;`
+
     with :math:`a,b,c` being angles in degrees.
 
-:math:`P  := \lbrace` ``Plane(o, x, z)`` :math:`: o,x,z ∈ R^3 \land \|x\| = \|z\| = 1\rbrace` 
-    
+:math:`P  := \lbrace` ``Plane(o, x, z)`` :math:`: o,x,z ∈ R^3 \land \|x\| = \|z\| = 1\rbrace`
+
     with ``o`` being the origin and ``x``, ``z`` the x- and z-direction of the plane.
 
 Neutral element: :math:`\; l_0 \in L`: ``Location()``
@@ -79,12 +84,12 @@ Neutral element: :math:`\; l_0 \in L`: ``Location()``
 **Operations:**
 
 :math:`*: L \times L \rightarrow L` with :math:`(l_1,l_2) \mapsto l_1 * l_2`
-    
+
     :math:`\; l_1 * l_2 :=`  ``l1 * l2`` (multiply two locations)
 
 :math:`*: P \times L \rightarrow P` with :math:`(p,l) \mapsto p * l`
 
-    :math:`\; p * l :=` ``Plane(p.to_location() * l)`` (move plane :math:`p \in P` to location :math:`l \in L`)
+    :math:`\; p * l :=` ``Plane(p.location * l)`` (move plane :math:`p \in P` to location :math:`l \in L`)
 
 Inverse element: :math:`\; l^{-1} \in L`: ``l.inverse()``
 
@@ -93,7 +98,7 @@ Inverse element: :math:`\; l^{-1} \in L`: ``l.inverse()``
 
 :math:`*: P \times C^n  \rightarrow C^n \;`  with :math:`(p,c) \mapsto p * c`,  :math:`\;` for :math:`n=1,2,3`
 
-    Locate an object :math:`c \in C^n` onto plane :math:`p \in P`, i.e. ``c.moved(p.to_location())``
+    Locate an object :math:`c \in C^n` onto plane :math:`p \in P`, i.e. ``c.moved(p.location)``
 
 **Placing objects at locations**
 

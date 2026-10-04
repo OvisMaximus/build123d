@@ -24,9 +24,10 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
+# [Code]
 from build123d import *
 from ocp_vscode import *
-
 
 with BuildPart() as example:
     Cylinder(radius=10, height=3)
@@ -37,7 +38,7 @@ with BuildPart() as example:
     visible, hidden = example.part.project_to_viewport((-100, 100, 100))
     exporter = ExportSVG(scale=6)
     exporter.add_layer("Visible")
-    exporter.add_layer("Hidden", line_color=(99, 99, 99), line_type=LineType.ISO_DOT)
+    exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
     exporter.add_shape(visible, layer="Visible")
     exporter.add_shape(hidden, layer="Hidden")
     exporter.write("assets/selector_before.svg")
@@ -53,9 +54,10 @@ with BuildPart() as example:
 visible, hidden = example.part.project_to_viewport((-100, 100, 100))
 exporter = ExportSVG(scale=6)
 exporter.add_layer("Visible")
-exporter.add_layer("Hidden", line_color=(99, 99, 99), line_type=LineType.ISO_DOT)
+exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
 exporter.add_shape(visible, layer="Visible")
 exporter.add_shape(hidden, layer="Hidden")
 exporter.write("assets/selector_after.svg")
 
 show(example)
+# [End]

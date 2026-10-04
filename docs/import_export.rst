@@ -6,11 +6,11 @@ Methods and functions specific to exporting and importing build123d objects are 
 
 For example:
 
-.. code-block:: python
+.. code-block:: build123d
 
     with BuildPart() as box_builder:
         Box(1, 1, 1)
-    box_builder.part.export_step("box.step")
+    export_step(box_builder.part, "box.step")
 
 File Formats
 ============
@@ -53,6 +53,42 @@ shared between different CAD software. The format's simplicity and human-readabl
 structure make it a versatile choice for sharing designs, drawings, and models 
 across various CAD platforms, facilitating seamless collaboration in engineering 
 and architectural projects.
+
+glTF
+----
+
+The glTF (GL Transmission Format) is a royalty-free specification for the efficient 
+transmission and loading of 3D models and scenes by applications. Developed by the 
+Khronos Group, glTF is designed as a compact, interoperable format that enables the 
+quick display of assets across various platforms and devices. glTF supports a rich 
+feature set, including detailed meshes, materials, textures, skeletal animations, 
+and more, facilitating complex 3D visualizations. It streamlines the process of 
+sharing and deploying 3D content in web applications, game engines, and other 
+visualization tools, making it the "JPEG of 3D." glTF's versatility and efficiency 
+have led to its widespread adoption in the 3D content industry.
+
+OBJ
+---
+
+Wavefront OBJ is a widely supported text-based mesh format. The
+:func:`~exporters3d.export_obj` function exports triangulated geometry, including
+vertex positions, normals, and UV texture coordinates. UV coordinates map each
+mesh face to a two-dimensional texture, allowing an external application to paint
+or bake textures onto the model.
+
+By default, the exporter packs the UV islands for all faces into one normalized
+texture atlas. Set ``atlas_gutter`` to reserve empty space around every island and
+avoid texture bleeding when the atlas is sampled with interpolation:
+
+.. code-block:: build123d
+
+    box = Box(20, 10, 5)
+    export_obj(box, "box.obj", atlas_gutter=0.002)
+
+The OBJ exporter writes geometry and UV data only. It does not create a material
+library (``.mtl``) file or embed, reference, or assign texture image files. Use the
+exported UV atlas with a separate texture-painting, baking, or material-authoring
+workflow.
 
 STL
 ---
@@ -108,6 +144,49 @@ specific properties followed by the addition of layers and shapes to the documen
 Once all of the layers and shapes have been added, the document can be written
 to a file. 
 
+3D to 2D Projection
+-------------------
+
+There are a couple ways to generate a 2D drawing of a 3D part:
+
+* Generate a section: The  :func:`~operations_part.section` operation can be used to
+  create a 2D cross section of a 3D part at a given plane.
+* Generate a projection: The :meth:`~topology.Shape.project_to_viewport` method can be
+  used to create a 2D projection of a 3D scene. Similar to a camera, the ``viewport_origin``
+  defines the location of camera, the ``viewport_up`` defines the orientation of the camera,
+  and the ``look_at`` parameter defined where the camera is pointed.  By default, 
+  ``viewport_up`` is the positive z axis and ``look_up`` is the center of the shape.  The
+  return value is a tuple of lists of edges, the first the visible edges and the second
+  the hidden edges.  
+  
+Each of these Edges and Faces can be assigned different line color/types and fill colors
+as described below (as ``project_to_viewport`` only generates Edges, fill doesn't apply).  
+The shapes generated from the above steps are to be added as shapes 
+in one of the exporters described below and written as either a DXF or SVG file as shown
+in this example:
+
+.. code-block:: build123d
+
+    view_port_origin=(-100, -50, 30)
+    visible, hidden = part.project_to_viewport(view_port_origin)
+    max_dimension = max(*Compound(children=visible + hidden).bounding_box().size)
+    exporter = ExportSVG(scale=100 / max_dimension)
+    exporter.add_layer("Visible")
+    exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
+    exporter.add_shape(visible, layer="Visible")
+    exporter.add_shape(hidden, layer="Hidden")
+    exporter.write("part_projection.svg")
+
+``ExportSVG`` accepts the standard :class:`~geometry.ColorLike` interface for
+layer fill and line colors. When a layer color is omitted, a Face color is used
+for its SVG fill and an Edge or Wire color is used for its SVG stroke. An
+explicit layer color, including ``None``, overrides the shape color.
+
+The older ``ColorIndex``, ``ezdxf.colors.RGB``, and 0–255 RGB tuple inputs are
+deprecated for SVG export and will be removed at or before version 1.0.0. They
+are converted with a ``DeprecationWarning`` during the transition. Use color
+names, hexadecimal values, or normalized RGB(A) tuples instead.
+
 LineType
 --------
 
@@ -141,6 +220,15 @@ Enum and are shown in the following diagram:
 ExportDXF
 ---------
 
+``ExportDXF`` accepts the standard :class:`~geometry.ColorLike` interface for
+document and layer colors. ColorLike alpha is written as DXF layer transparency.
+True-color black is always ``0x000000``; unlike ACI 7, DXF viewers do not switch
+it to white on dark backgrounds. DXF versions before R2004 have no true color,
+so for those the nearest AutoCAD Color Index is written instead. The older
+``ColorIndex`` values remain supported
+during the transition but emit a ``DeprecationWarning`` and will be removed at or
+before version 1.0.0.
+
 .. autoclass:: exporters.ExportDXF
     :noindex:
 
@@ -153,26 +241,33 @@ ExportSVG
 3D Exporters
 ============
 
+.. py:module:: exporters3d
 
-.. automethod:: topology.Shape.export_brep
+.. autofunction:: export_brep
    :noindex:
 
-.. automethod:: topology.Shape.export_step
+.. autofunction:: export_gltf
    :noindex:
 
-.. automethod:: topology.Shape.export_stl
+.. autofunction:: export_obj
+   :noindex:
+
+.. autofunction:: export_step
+   :noindex:
+
+.. autofunction:: export_stl
    :noindex:
 
 3D Mesh Export
 --------------
 
 Both 3MF and STL export (and import) are provided with the :class:`~mesher.Mesher` class.
-As mentioned above the 3MF format provides is feature-rich and therefore has a slightly
+As mentioned above, the 3MF format it provides is feature-rich and therefore has a slightly
 more complex API than the simple Shape exporters.
 
 For example:
 
-.. code-block:: python
+.. code-block:: build123d
 
     # Create the shapes and assign attributes
     blue_shape = Solid.make_cone(20, 0, 50)
@@ -200,10 +295,18 @@ For example:
 
 .. autoclass:: mesher.Mesher
 
+.. note::
+
+    If you need to align multiple components for 3D printing, you can use the  :ref:`pack() <pack>` function to arrange the objects side by side and align them on the same plane. This ensures that your components are well-organized and ready for the printing process.
+
+
 2D Importers
 ============
-.. py:module:: importers
 
+.. py:module:: import_dxf
+.. autofunction:: import_dxf
+
+.. py:module:: importers
 .. autofunction:: import_svg
 .. autofunction:: import_svg_as_buildline_code
 
@@ -214,6 +317,17 @@ For example:
 .. autofunction:: import_step
 .. autofunction:: import_stl
 
+STL Reconstruction
+------------------
+
+The :func:`~build123d.detect_primitives` helper can be used during STL
+reconstruction to detect analytic planes, cylinders, and spheres in a mesh-like
+shape and generate algebra-mode code fragments to aid manual redesign.
+
+See :ref:`stl_reconstruction_tutorial` for the full workflow and limitations.
+
+.. autofunction:: build123d.detect_primitives
+
 3D Mesh Import
 --------------
 
@@ -221,7 +335,7 @@ Both 3MF and STL import (and export) are provided with the :class:`~mesher.Meshe
 
 For example:
 
-.. code-block:: python
+.. code-block:: build123d
 
     importer = Mesher()
     cone, cyl = importer.read("example.3mf")

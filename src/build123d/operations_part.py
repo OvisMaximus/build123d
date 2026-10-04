@@ -25,14 +25,21 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
-from typing import Union, Iterable
-from build123d.build_enums import Mode, Until, Transition, Kind, Side
+from typing import cast
+
+from collections.abc import Iterable
+from itertools import cycle, permutations, starmap
+from build123d.build_enums import GeomType, Mode, Until, Kind, Side
 from build123d.build_part import BuildPart
 from build123d.geometry import Axis, Plane, Vector, VectorLike
+from build123d.sheet_utils import SheetMetalParameters, material_offsets
 from build123d.topology import (
+    ShapeHistory,
     Compound,
     Curve,
+    DraftAngleError,
     Edge,
     Face,
     Shell,
@@ -44,15 +51,72 @@ from build123d.topology import (
     Vertex,
 )
 
-from build123d.build_common import logger, WorkplaneList, validate_inputs
+from build123d.build_common import (
+    logger,
+    flatten_sequence,
+    validate_inputs,
+)
+
+
+def draft(
+    faces: Face | Iterable[Face],
+    neutral_plane: Plane,
+    angle: float,
+) -> Part:
+    """Part Operation: draft
+
+    Apply a draft angle to the given faces of the part
+
+    Args:
+        faces: Faces to which the draft should be applied.
+        neutral_plane: Plane defining the neutral direction and position.
+        angle: Draft angle in degrees.
+    """
+    context: BuildPart | None = BuildPart._get_context("draft")
+
+    face_list: ShapeList[Face] = flatten_sequence(faces)
+    assert all(isinstance(f, Face) for f in face_list), "all faces must be of type Face"
+    validate_inputs(context, "draft", face_list)
+
+    valid_geom_types = {GeomType.PLANE, GeomType.CYLINDER, GeomType.CONE}
+    unsupported = [f for f in face_list if f.geom_type not in valid_geom_types]
+    if unsupported:
+        raise ValueError(
+            f"Draft not supported on face(s) with geometry: "
+            f"{', '.join(set(f.geom_type.name for f in unsupported))}"
+        )
+
+    # Check that all the faces are associated with the same Solid
+    topo_parents = set(f.topo_parent for f in face_list if f.topo_parent is not None)
+    if len(topo_parents) != 1:
+        raise ValueError("All faces must share the same topological parent (a Solid)")
+    parent_solids = next(iter(topo_parents)).solids()
+    if len(parent_solids) != 1:
+        raise ValueError("Topological parent must be a single Solid")
+
+    # Create the drafted solid
+    try:
+        new_solid = parent_solids[0].draft(face_list, neutral_plane, angle)
+    except DraftAngleError as err:
+        raise DraftAngleError(
+            "Draft operation failed. "
+            "Use `err.face` and `err.problematic_shape` for more information.",
+            face=err.face,
+            problematic_shape=err.problematic_shape,
+        ) from err
+
+    if context is not None:
+        context._add_to_context(new_solid, clean=False, mode=Mode.REPLACE)
+
+    return Part(Compound([new_solid]).wrapped)._made_by(ShapeHistory.of(new_solid))
 
 
 def extrude(
-    to_extrude: Union[Face, Sketch] = None,
-    amount: float = None,
-    dir: VectorLike = None,
-    until: Until = None,
-    target: Union[Compound, Solid] = None,
+    to_extrude: Face | Sketch | None = None,
+    amount: float | None = None,
+    dir: VectorLike | None = None,  # pylint: disable=redefined-builtin
+    until: Until | None = None,
+    target: Compound | Solid | None = None,
     both: bool = False,
     taper: float = 0.0,
     clean: bool = True,
@@ -74,13 +138,13 @@ def extrude(
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
 
     Raises:
-        ValueError: No object to extrude
-        ValueError: No target object
+        ValueError: Inputs do not identify faces or sheets that can be thickened.
+        TypeError: ``sheet_parameters`` has the wrong type.
 
     Returns:
-        Part: extruded object
+        The material created from the input faces or sheets.
     """
-    context: BuildPart = BuildPart._get_context("extrude")
+    context: BuildPart | None = BuildPart._get_context("extrude")
     validate_inputs(context, "extrude", to_extrude)
 
     to_extrude_faces: list[Face]
@@ -101,7 +165,14 @@ def extrude(
             if isinstance(to_extrude, (tuple, list, filter))
             else to_extrude.faces()
         )
-        face_planes = [Plane(face) for face in to_extrude_faces]
+        face_planes = []
+        for face in to_extrude_faces:
+            try:
+                plane = Plane(face)
+            except ValueError:  # non-planar face
+                plane = None
+            if plane is not None:
+                face_planes.append(plane)
 
     new_solids: list[Solid] = []
 
@@ -111,12 +182,8 @@ def extrude(
             Plane(face.center(), face.center_location.x_axis.direction, Vector(dir))
             for face in to_extrude_faces
         ]
-
-    if until is not None:
-        if target is None and context is None:
-            raise ValueError("A target object must be provided")
-        if target is None:
-            target = context.part
+    if len(face_planes) != len(to_extrude_faces):
+        raise ValueError("dir must be provided when extruding non-planar faces")
 
     logger.info(
         "%d face(s) to extrude on %d face plane(s)",
@@ -126,7 +193,7 @@ def extrude(
 
     for face, plane in zip(to_extrude_faces, face_planes):
         for direction in [1, -1] if both else [1]:
-            if amount:
+            if amount is not None:
                 if taper == 0:
                     new_solids.append(
                         Solid.extrude(
@@ -144,28 +211,40 @@ def extrude(
                     )
 
             else:
+                if until is None:
+                    raise ValueError("Either amount or until must be provided")
+                if target is None:
+                    if context is None:
+                        raise ValueError("A target object must be provided")
+                    target_object = context.part_local
+                else:
+                    target_object = target
+                if target_object is None:
+                    raise ValueError("No target object provided")
+
                 new_solids.append(
                     Solid.extrude_until(
-                        section=face,
-                        target_object=target,
+                        face,
+                        target=target_object,
                         direction=plane.z_dir * direction,
                         until=until,
                     )
                 )
 
+    if both and len(new_solids) > 1:
+        fused_solids = new_solids.pop().fuse(*new_solids)
+        new_solids = fused_solids if isinstance(fused_solids, list) else [fused_solids]
+    if clean:
+        new_solids = [solid.clean() for solid in new_solids]
+
     if context is not None:
         context._add_to_context(*new_solids, clean=clean, mode=mode)
-    else:
-        if len(new_solids) > 1:
-            new_solids = [new_solids.pop().fuse(*new_solids)]
-        if clean:
-            new_solids = [solid.clean() for solid in new_solids]
 
-    return Part(Compound.make_compound(new_solids).wrapped)
+    return Part(ShapeList(new_solids).solids())
 
 
 def loft(
-    sections: Union[Face, Iterable[Face]] = None,
+    sections: Face | Sketch | Iterable[Vertex | Face | Sketch] | None = None,
     ruled: bool = False,
     clean: bool = True,
     mode: Mode = Mode.ADD,
@@ -174,52 +253,126 @@ def loft(
 
     Loft the pending sketches/faces, across all workplanes, into a solid.
 
+    Faces may contain inner wires, which are lofted as holes and subtracted from
+    the outer loft. When a face has more than one inner wire, the wires in each
+    subsequent section are matched to the preceding section by choosing the
+    assignment with the smallest total distance between wire centers. This
+    makes the result independent of the order in which inner wires are
+    returned, but it is only a geometric heuristic: holes that are close
+    together, cross paths, or change position significantly may be matched
+    incorrectly. All sections must contain the same number of inner wires.
+
     Args:
-        sections (Face): slices to loft into object. If not provided, pending_faces
-            will be used.
+        sections (Vertex, Face, Sketch): slices to loft into object. If not provided, pending_faces
+            will be used. If vertices are to be used, a vertex can be the first, last, or
+            first and last elements.
         ruled (bool, optional): discontiguous layer tangents. Defaults to False.
         clean (bool, optional): Remove extraneous internal structure. Defaults to True.
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
     """
-    context: BuildPart = BuildPart._get_context("loft")
 
-    section_list = (
-        [*sections] if isinstance(sections, (list, tuple, filter)) else [sections]
-    )
+    context: BuildPart | None = BuildPart._get_context("loft")
+
+    section_list = flatten_sequence(sections)
     validate_inputs(context, "loft", section_list)
 
-    if all([s is None for s in section_list]):
-        if context is None or (context is not None and not context.pending_faces):
+    # If no explicit sections provided, use pending_faces from context
+    if all(s is None for s in section_list):
+        if context is None or not context.pending_faces:
             raise ValueError("No sections provided")
-        loft_wires = [face.outer_wire() for face in context.pending_faces]
+        input_sections = context.pending_faces
         context.pending_faces = []
         context.pending_face_planes = []
     else:
-        loft_wires = [
-            face.outer_wire() for section in section_list for face in section.faces()
-        ]
-    new_solid = Solid.make_loft(loft_wires, ruled)
+        input_sections = section_list
+
+    # Validate Vertex placement
+    if any(isinstance(s, Vertex) for s in input_sections):
+        if not isinstance(input_sections[0], Vertex) and not isinstance(
+            input_sections[-1], Vertex
+        ):
+            raise ValueError(
+                "Vertices must be the first, last, or first and last elements"
+            )
+        if any(isinstance(s, Vertex) for s in input_sections[1:-1]):
+            raise ValueError(
+                "Vertices must be the first, last, or first and last elements"
+            )
+
+    # Normalize all input into outer wires and collect the corresponding holes.
+    loft_sections: list[Vertex | Wire] = []
+    faces: list[Face] = []
+    for s in input_sections:
+        if isinstance(s, Vertex):
+            loft_sections.append(s)
+        else:
+            for face in s.faces():
+                loft_sections.append(face.outer_wire())
+                faces.append(face)
+
+    hole_counts = [len(face.inner_wires()) for face in faces]
+    if any(hole_counts) and len(set(hole_counts)) != 1:
+        raise ValueError("All sections must have the same number of inner wires")
+
+    # Match holes between sections by minimizing the distance between their
+    # centers. This is needed because the order of inner_wires is not
+    # guaranteed to be consistent between faces.
+    hole_sections: list[list[Wire]] = []
+    if hole_counts and hole_counts[0]:
+        hole_sections = [[wire] for wire in faces[0].inner_wires()]
+        for face in faces[1:]:
+
+            def distance(j, k, current_face=face):
+                return (
+                    hole_sections[j][-1].center()
+                    - current_face.inner_wires()[k].center()
+                ).length
+
+            grouping_iterator = starmap(
+                zip,
+                zip(
+                    cycle((range(len(hole_sections)),)),
+                    permutations(range(len(hole_sections))),
+                ),
+            )
+            groupings = [list(grouping) for grouping in grouping_iterator]
+            quality = [sum(starmap(distance, grouping)) for grouping in groupings]
+            best_grouping = sorted(zip(quality, groupings))[0][1]
+            for j, k in best_grouping:
+                hole_sections[j].append(face.inner_wires()[k])
+
+    # Perform lofts
+    new_solid = Solid.make_loft(loft_sections, ruled)
+    if hole_sections:
+        hole_solids = [Solid.make_loft(holes, ruled) for holes in hole_sections]
+        new_solid = cast(Solid, new_solid.cut(*hole_solids))
 
     # Try to recover an invalid loft
-    if not new_solid.is_valid():
-        new_solid = Solid.make_solid(Shell.make_shell(new_solid.faces() + section_list))
-        if clean:
-            new_solid = new_solid.clean()
-        if not new_solid.is_valid():
-            raise RuntimeError("Failed to create valid loft")
+    if not new_solid.is_valid:
+        try:
+            recovery_faces = new_solid.faces() + [
+                Face(wire) for wire in loft_sections if isinstance(wire, Wire)
+            ]
+            new_solid = Solid(Shell(recovery_faces))
+            if clean:
+                new_solid = new_solid.clean()
+            if not new_solid.is_valid:
+                raise ValueError("Recovery failed")
+        except Exception as e:
+            raise RuntimeError("Failed to create valid loft") from e
 
     if context is not None:
         context._add_to_context(new_solid, clean=clean, mode=mode)
     elif clean:
         new_solid = new_solid.clean()
 
-    return Part(Compound.make_compound([new_solid]).wrapped)
+    return Part(Compound([new_solid]).wrapped)._made_by(ShapeHistory.of(new_solid))
 
 
 def make_brake_formed(
     thickness: float,
-    station_widths: Union[float, Iterable[float]],
-    line: Union[Edge, Wire, Curve] = None,
+    station_widths: float | Iterable[float],
+    line: Edge | Wire | Curve | None = None,
     side: Side = Side.LEFT,
     kind: Kind = Kind.ARC,
     clean: bool = True,
@@ -254,7 +407,7 @@ def make_brake_formed(
     Returns:
         Part: sheet metal part
     """
-    context: BuildPart = BuildPart._get_context("make_brake_formed")
+    context: BuildPart | None = BuildPart._get_context("make_brake_formed")
     validate_inputs(context, "make_brake_formed")
 
     if line is not None:
@@ -262,7 +415,7 @@ def make_brake_formed(
             line = line.wires()[0]
         elif not isinstance(line, (Edge, Wire)):
             raise ValueError("line must be either a Curve, Edge or Wire")
-    elif context is not None and not context.pending_edges_as_wire is None:
+    elif context is not None and context.pending_edges_as_wire is not None:
         line = context.pending_edges_as_wire
     else:
         raise ValueError("A line must be provided")
@@ -272,34 +425,40 @@ def make_brake_formed(
     offset_vertices = offset_line.vertices()
 
     try:
-        plane = Plane(Face.make_from_wires(offset_line))
-    except:
-        raise ValueError("line not suitable - probably straight")
+        plane = Plane(Face(offset_line))
+    except Exception as exc:
+        raise ValueError("line not suitable - probably straight") from exc
 
     # Make edge pairs
-    station_edges = ShapeList()
+    station_edges: ShapeList[Edge] = ShapeList()
     line_vertices = line.vertices()
-    for v in line_vertices:
-        others = offset_vertices.sort_by_distance(Vector(v.X, v.Y, v.Z))
-        for o in others[1:]:
-            if abs(Vector(*(v - o).to_tuple()).length - thickness) < 1e-2:
-                station_edges.append(Edge.make_line(v.to_tuple(), o.to_tuple()))
+
+    if isinstance(station_widths, (float, int)):
+        station_widths_list = [station_widths] * len(line_vertices)
+    elif isinstance(station_widths, Iterable):
+        station_widths_list = list(station_widths)
+    else:
+        raise TypeError("station_widths must be either a single number or an iterable")
+
+    for vertex in line_vertices:
+        others = offset_vertices.sort_by_distance(Vector(vertex))
+        for other in others[1:]:
+            if abs(Vector((vertex - other)).length - thickness) < 1e-2:
+                station_edges.append(Edge.make_line(vertex, other))
                 break
     station_edges = station_edges.sort_by(line)
 
-    if isinstance(station_widths, (float, int)):
-        station_widths = [station_widths] * len(line_vertices)
-    if len(station_widths) != len(line_vertices):
+    if len(station_widths_list) != len(line_vertices):
         raise ValueError(
             f"widths must either be a single number or an iterable with "
             f"a length of the # vertices in line ({len(line_vertices)})"
         )
     station_faces = [
         Face.extrude(obj=e, direction=plane.z_dir * w)
-        for e, w in zip(station_edges, station_widths)
+        for e, w in zip(station_edges, station_widths_list)
     ]
     sweep_paths = line.edges().sort_by(line)
-    sections = []
+    sections: list[Solid] = []
     for i in range(len(station_faces) - 1):
         sections.append(
             Solid.sweep_multi(
@@ -307,21 +466,22 @@ def make_brake_formed(
             )
         )
     if len(sections) > 1:
-        new_solid = sections.pop().fuse(*sections)
+        new_solid = cast(Part, Part.fuse(*sections))
     else:
         new_solid = sections[0]
 
     if context is not None:
         context._add_to_context(new_solid, clean=clean, mode=mode)
+        context.pending_edges = ShapeList()
     elif clean:
         new_solid = new_solid.clean()
 
-    return Part(Compound.make_compound([new_solid]).wrapped)
+    return Part(Compound([new_solid]).wrapped)._made_by(ShapeHistory.of(new_solid))
 
 
 def project_workplane(
-    origin: Union[VectorLike, Vertex],
-    x_dir: Union[VectorLike, Vertex],
+    origin: VectorLike | Vertex,
+    x_dir: VectorLike | Vertex,
     projection_dir: VectorLike,
     distance: float,
 ) -> Plane:
@@ -345,19 +505,15 @@ def project_workplane(
     Returns:
         Plane: workplane aligned for projection
     """
-    context: BuildPart = BuildPart._get_context("project_workplane")
+    context: BuildPart | None = BuildPart._get_context("project_workplane")
 
     if context is not None and not isinstance(context, BuildPart):
         raise RuntimeError(
             "projection_workplane can only be used from a BuildPart context or algebra"
         )
 
-    origin = origin.to_vector() if isinstance(origin, Vertex) else Vector(origin)
-    x_dir = (
-        x_dir.to_vector().normalized()
-        if isinstance(x_dir, Vertex)
-        else Vector(x_dir).normalized()
-    )
+    origin = Vector(origin) if isinstance(origin, Vertex) else Vector(origin)
+    x_dir = Vector(x_dir).normalized()
     projection_dir = Vector(projection_dir).normalized()
 
     # Create a preliminary workplane without x direction set
@@ -367,20 +523,19 @@ def project_workplane(
     # Project a point off the origin to find the projected x direction
     screen = Face.make_rect(1e9, 1e9, plane=workplane)
     x_dir_point_axis = Axis(origin + x_dir, projection_dir)
-    projection = screen.find_intersection(x_dir_point_axis)
+    projection = screen.find_intersection_points(x_dir_point_axis)
     if not projection:
         raise ValueError("x_dir perpendicular to projection_dir")
 
     # Set the workplane's x direction
     workplane_x_dir = projection[0][0] - workplane_origin
     workplane.x_dir = workplane_x_dir
-    workplane._calc_transforms()
 
     return workplane
 
 
 def revolve(
-    profiles: Union[Face, Iterable[Face]] = None,
+    profiles: Face | Iterable[Face] | None = None,
     axis: Axis = Axis.Z,
     revolution_arc: float = 360.0,
     clean: bool = True,
@@ -389,6 +544,8 @@ def revolve(
     """Part Operation: Revolve
 
     Revolve the profile or pending sketches/face about the given axis.
+    Note that the most common use case is when the axis is in the same plane as the
+    face to be revolved but this isn't required.
 
     Args:
         profiles (Face, optional): 2D profile(s) to revolve.
@@ -400,44 +557,30 @@ def revolve(
     Raises:
         ValueError: Invalid axis of revolution
     """
-    context: BuildPart = BuildPart._get_context("revolve")
+    context: BuildPart | None = BuildPart._get_context("revolve")
 
-    profile_list = (
-        [*profiles] if isinstance(profiles, (list, tuple, filter)) else [profiles]
-    )
+    profile_list = flatten_sequence(profiles)
+
     validate_inputs(context, "revolve", profile_list)
 
     # Make sure we account for users specifying angles larger than 360 degrees, and
     # for OCCT not assuming that a 0 degree revolve means a 360 degree revolve
-    angle = revolution_arc % 360.0
-    angle = 360.0 if angle == 0 else angle
+    sign = 1 if revolution_arc >= 0 else -1
+    angle = revolution_arc % (sign * 360.0)
+    angle = sign * 360.0 if angle == 0 else angle
 
     if all([s is None for s in profile_list]):
         if context is None or (context is not None and not context.pending_faces):
             raise ValueError("No profiles provided")
-        profile_list = context.pending_faces
+        profile_faces = context.pending_faces
         context.pending_faces = []
         context.pending_face_planes = []
     else:
-        p_list = []
-        for profile in profile_list:
-            p_list.extend(profile.faces())
-        profile_list = p_list
+        profile_faces = profile_list.faces()
 
-    new_solids = []
-    for profile in profile_list:
-        # axis origin must be on the same plane as profile
-        face_plane = Plane(profile)
-        if not face_plane.contains(axis.position):
-            raise ValueError(
-                "axis origin must be on the same plane as the face to revolve"
-            )
-        if not face_plane.contains(axis):
-            raise ValueError("axis must be in the same plane as the face to revolve")
+    new_solids = [Solid.revolve(profile, angle, axis) for profile in profile_faces]
 
-        new_solids.append(Solid.revolve(profile, angle, axis))
-
-    new_solid = Compound.make_compound(new_solids)
+    new_solid = Compound(new_solids)
     if context is not None:
         context._add_to_context(*new_solids, clean=clean, mode=mode)
     elif clean:
@@ -447,12 +590,12 @@ def revolve(
 
 
 def section(
-    obj: Part = None,
-    section_by: Union[Plane, Iterable[Plane]] = Plane.XZ,
+    obj: Part | None = None,
+    section_by: Plane | Iterable[Plane] = Plane.XZ,
     height: float = 0.0,
     clean: bool = True,
-    mode: Mode = Mode.INTERSECT,
-) -> Part:
+    mode: Mode = Mode.PRIVATE,
+) -> Sketch:
     """Part Operation: section
 
     Slices current part at the given height by section_by or current workplane(s).
@@ -465,20 +608,25 @@ def section(
         clean (bool, optional): Remove extraneous internal structure. Defaults to True.
         mode (Mode, optional): combination mode. Defaults to Mode.INTERSECT.
     """
-    context: BuildPart = BuildPart._get_context("section")
+    context: BuildPart | None = BuildPart._get_context("section")
     validate_inputs(context, "section", None)
 
-    if context is not None and obj is None:
-        max_size = context.part.bounding_box().diagonal
+    if obj is not None:
+        to_section = obj
+    elif context is not None and context.part is not None:
+        to_section = context.part
     else:
-        max_size = obj.bounding_box().diagonal
+        raise ValueError("No object to section")
+
+    bbox = to_section.bounding_box(optimal=False)
+    max_size = max(abs(v) for v in list(bbox.min) + list(bbox.max)) + bbox.diagonal
 
     if section_by is not None:
         section_planes = (
             section_by if isinstance(section_by, Iterable) else [section_by]
         )
     elif context is not None:
-        section_planes = WorkplaneList._get_context().workplanes
+        section_planes = [Plane.XY]
     else:
         raise ValueError("Plane(s) must be provide to section by")
 
@@ -491,110 +639,59 @@ def section(
         for plane in section_planes
     ]
 
+    new_objects: list[Face | Shell] = []
+    for plane in planes:
+        intersection = to_section.intersect(plane)
+        if intersection is not None:
+            new_objects.extend(intersection)
+
     if context is not None:
-        context._add_to_context(*planes, faces_to_pending=False, clean=clean, mode=mode)
-        result = planes
-    else:
-        result = [obj.intersect(plane) for plane in planes]
-        if clean:
-            result = [r.clean() for r in result]
-
-    return Part(Compound.make_compound(result).wrapped)
-
-
-#:TypeVar("SweepType"): Type of objects which can be swept
-SweepType = Union[Edge, Wire, Face, Solid]
-
-
-def sweep(
-    sections: Union[SweepType, Iterable[SweepType]] = None,
-    path: Union[Edge, Wire] = None,
-    multisection: bool = False,
-    is_frenet: bool = False,
-    transition: Transition = Transition.TRANSFORMED,
-    normal: VectorLike = None,
-    binormal: Union[Edge, Wire] = None,
-    clean: bool = True,
-    mode: Mode = Mode.ADD,
-) -> Part:
-    """Part Operation: sweep
-
-    Sweep pending sketches/faces along path.
-
-    Args:
-        sections (Union[Face, Compound]): cross sections to sweep into object
-        path (Union[Edge, Wire], optional): path to follow.
-            Defaults to context pending_edges.
-        multisection (bool, optional): sweep multiple on path. Defaults to False.
-        is_frenet (bool, optional): use frenet algorithm. Defaults to False.
-        transition (Transition, optional): discontinuity handling option.
-            Defaults to Transition.RIGHT.
-        normal (VectorLike, optional): fixed normal. Defaults to None.
-        binormal (Union[Edge, Wire], optional): guide rotation along path. Defaults to None.
-        clean (bool, optional): Remove extraneous internal structure. Defaults to True.
-        mode (Mode, optional): combination. Defaults to Mode.ADD.
-    """
-    context: BuildPart = BuildPart._get_context("sweep")
-
-    if path is None:
-        path_wire = context.pending_edges_as_wire
-        context.pending_edges = []
-    else:
-        path_wire = Wire.make_wire([path]) if isinstance(path, Edge) else path
-
-    section_list = (
-        [*sections] if isinstance(sections, (list, tuple, filter)) else [sections]
-    )
-    validate_inputs(context, "sweep", section_list)
-
-    if all([s is None for s in section_list]):
-        if context is None or (context is not None and not context.pending_faces):
-            raise ValueError("No sections provided")
-        section_list = context.pending_faces
-        context.pending_faces = []
-        context.pending_face_planes = []
-    else:
-        section_list = [face for section in sections for face in section.faces()]
-
-    if binormal is None and normal is not None:
-        binormal_mode = Vector(normal)
-    elif isinstance(binormal, Edge):
-        binormal_mode = Wire.make_wire([binormal])
-    else:
-        binormal_mode = binormal
-
-    new_solids = []
-    if multisection:
-        sections = [section.outer_wire() for section in section_list]
-        new_solid = Solid.sweep_multi(
-            sections, path_wire, True, is_frenet, binormal_mode
+        context._add_to_context(
+            *new_objects, faces_to_pending=False, clean=clean, mode=mode
         )
     else:
-        for sec in section_list:
-            new_solid = Solid.sweep(
-                section=sec,
-                path=path_wire,
-                make_solid=True,
-                is_frenet=is_frenet,
-                mode=binormal_mode,
-                transition=transition,
-            )
-    new_solids.append(new_solid)
+        if clean:
+            new_objects = [r.clean() for r in new_objects]
 
-    if context is not None:
-        context._add_to_context(*new_solids, clean=clean, mode=mode)
-    elif clean:
-        new_solids = [solid.clean() for solid in new_solids]
+    return Sketch(Compound(new_objects).wrapped)
 
-    return Part(Compound.make_compound(new_solids).wrapped)
+
+def _thicken_sheet(sheet: Shell, sheet_parameters: SheetMetalParameters) -> Part:
+    """Create sheet material from a reference shell and its parameters.
+
+    The material is always produced by a single thickening pass. When the
+    reference surface lies within the material - ``SheetSurface.MID`` or
+    ``SheetSurface.NEUTRAL`` - the shell is first offset out to the outside
+    material face. Thickening to either side of the reference surface and
+    fusing the halves instead leaves the reference surface behind as interior
+    faces: for a hemmed tray that is 98 faces rather than 62, for the same
+    volume.
+    """
+    if not sheet.faces():
+        raise ValueError("Can't thicken an empty sheet Shell")
+
+    thickness = sheet_parameters.thickness
+    inside, outside = material_offsets(sheet_parameters)
+    if outside == 0:  # the reference surface is the outside of the material
+        material = Solid.thicken(sheet, thickness)
+    elif inside == 0:  # the reference surface is the inside of the material
+        material = Solid.thicken(sheet, -thickness)
+    else:  # the reference surface lies within the material
+        material = Solid.thicken(sheet.offset(outside), thickness)
+
+    part = Part(Compound(material.solids()).wrapped)
+    if not part.is_valid or not part.solids():
+        raise ValueError("Unable to create valid material from the sheet Shell")
+    return part
 
 
 def thicken(
-    to_thicken: Union[Face, Sketch] = None,
-    amount: float = None,
-    normal_override: VectorLike = None,
+    to_thicken: Face | Sketch | Shell | None = None,
+    amount: float | None = None,
+    normal_override: VectorLike | None = None,
     both: bool = False,
     clean: bool = True,
+    sheet_parameters: SheetMetalParameters | None = None,
     mode: Mode = Mode.ADD,
 ) -> Part:
     """Part Operation: thicken
@@ -602,14 +699,19 @@ def thicken(
     Create a solid(s) from a potentially non planar face(s) by thickening along the normals.
 
     Args:
-        to_thicken (Union[Face, Sketch], optional): object to thicken. Defaults to None.
-        amount (float, optional): distance to extrude, sign controls direction. Defaults to None.
+        to_thicken: Face, Sketch, or sheet Shell to thicken. Defaults to pending
+            sheets or faces in Builder mode.
+        amount: Distance to thicken ordinary faces; its sign controls direction.
+            Omit when thickening a sheet Shell with ``sheet_parameters``.
         normal_override (Vector, optional): The normal_override vector can be used to
             indicate which way is 'up', potentially flipping the face normal direction
             such that many faces with different normals all go in the same direction
             (direction need only be +/- 90 degrees from the face normal). Defaults to None.
         both (bool, optional): thicken in both directions. Defaults to False.
         clean (bool, optional): Remove extraneous internal structure. Defaults to True.
+        sheet_parameters: Material and reference-surface parameters. Required for
+            sheet Shells in Algebra mode and supplied by a pending ``BuildSheet``
+            in Builder mode.
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
 
     Raises:
@@ -619,46 +721,94 @@ def thicken(
     Returns:
         Part: extruded object
     """
-    context: BuildPart = BuildPart._get_context("thicken")
+    context: BuildPart | None = BuildPart._get_context("thicken")
     validate_inputs(context, "thicken", to_thicken)
+    if sheet_parameters is not None and not isinstance(
+        sheet_parameters, SheetMetalParameters
+    ):
+        raise TypeError("sheet_parameters must be a SheetMetalParameters")
 
-    to_thicken_faces: list[Face]
+    pending_sheets: list[tuple[Shell, SheetMetalParameters]] = []
+    to_thicken_faces: list[Face] = []
+    use_pending_sheets = (
+        to_thicken is None
+        and context is not None
+        and bool(context.pending_sheets)
+        and (amount is None or not context.pending_faces)
+    )
+    sheet_request = use_pending_sheets or (
+        isinstance(to_thicken, Shell) and sheet_parameters is not None
+    )
+    if sheet_request and (normal_override is not None or both):
+        raise ValueError(
+            "normal_override and both aren't used when thickening a sheet Shell"
+        )
 
-    if to_thicken is None:
-        if context is not None and context.pending_faces:
+    if use_pending_sheets:
+        assert context is not None
+        if amount is not None:
+            raise ValueError("amount isn't used when thickening a BuildSheet")
+        if sheet_parameters is not None:
+            raise ValueError("sheet_parameters is supplied by the pending BuildSheet")
+        pending_sheets = context.pending_sheets
+        context.pending_sheets = []
+    elif isinstance(to_thicken, Shell) and sheet_parameters is not None:
+        if amount is not None:
+            raise ValueError("amount isn't used with sheet_parameters")
+        pending_sheets = [(to_thicken, sheet_parameters)]
+    else:
+        if sheet_parameters is not None:
+            raise ValueError("sheet_parameters requires a sheet Shell")
+        if amount is None:
+            raise ValueError("An amount must be provided")
+
+        if to_thicken is None and context is not None and context.pending_faces:
             # Get pending faces and face planes
             to_thicken_faces = context.pending_faces
             context.pending_faces = []
             context.pending_face_planes = []
-        else:
+        elif to_thicken is None:
             raise ValueError("A face or sketch must be provided")
-    else:
-        # Get the faces from the face or sketch
-        to_thicken_faces = (
-            [*to_thicken]
-            if isinstance(to_thicken, (tuple, list, filter))
-            else to_thicken.faces()
-        )
-
-    new_solids: list[Solid] = []
-
-    logger.info("%d face(s) to thicken", len(to_thicken_faces))
-
-    for face in to_thicken_faces:
-        normal_override = (
-            normal_override if normal_override is not None else face.normal_at()
-        )
-        for direction in [1, -1] if both else [1]:
-            new_solids.append(
-                face.thicken(depth=amount, normal_override=normal_override * direction)
+        else:
+            # Get the faces from the face, sketch, or generic shell
+            to_thicken_faces = (
+                [*to_thicken]
+                if isinstance(to_thicken, (tuple, list, filter))
+                else to_thicken.faces()
             )
 
+    new_solids: list[Solid] = []
+    sheet_thickening = bool(pending_sheets)
+    if sheet_thickening:
+        logger.info("%d sheet(s) to thicken", len(pending_sheets))
+        for sheet, parameters in pending_sheets:
+            new_solids.extend(_thicken_sheet(sheet, parameters).solids())
+    else:
+        assert amount is not None
+        logger.info("%d face(s) to thicken", len(to_thicken_faces))
+        for face in to_thicken_faces:
+            face_normal = (
+                normal_override if normal_override is not None else face.normal_at()
+            )
+            for direction in [1, -1] if both else [1]:
+                new_solids.append(
+                    Solid.thicken(
+                        face,
+                        depth=amount,
+                        normal_override=Vector(face_normal) * direction,
+                    )
+                )
+
     if context is not None:
-        context._add_to_context(*new_solids, clean=clean, mode=mode)
+        context._add_to_context(
+            *new_solids,
+            clean=False if sheet_thickening else clean,
+            mode=mode,
+        )
     else:
         if len(new_solids) > 1:
-            new_solids = [new_solids.pop().fuse(*new_solids)]
-        if clean:
+            new_solids = [cast(Part, Part.fuse(*new_solids))]
+        if clean and not sheet_thickening:
             new_solids = [solid.clean() for solid in new_solids]
 
-    return Part(Compound.make_compound(new_solids).wrapped)
+    return Part(Compound(new_solids).wrapped)

@@ -24,9 +24,15 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
+# [Imports]
 from build123d import *
 from ocp_vscode import *
 
+# [Parameters]
+# - none
+
+# [Code]
 with BuildSketch() as logo_text:
     Text("123d", font_size=10, align=(Align.MIN, Align.MIN))
     font_height = logo_text.vertices().sort_by(Axis.Y)[-1].Y
@@ -74,9 +80,9 @@ with BuildLine() as extension_lines:
         (logo_width, -ext_line_length - font_height * 0.1),
     )
     with Locations(l1 @ 0.5):
-        add(arrow_left.line)
+        insert(arrow_left.line)
     with Locations(l2 @ 0.5):
-        add(arrow_left.line, rotation=180.0)
+        insert(arrow_left.line, rotation=180.0)
     Line(l1 @ 0.5, l1 @ 0.5 + Vector(dim_line_length, 0))
     Line(l2 @ 0.5, l2 @ 0.5 - Vector(dim_line_length, 0))
 
@@ -86,11 +92,11 @@ with BuildSketch() as build:
         (l1 @ 0.5 + l2 @ 0.5) / 2
         - Vector((build_vertices[-1].X + build_vertices[0].X) / 2, 0)
     ):
-        add(build_text.sketch)
+        insert(build_text.sketch)
     with Locations((logo_width / 2, -6)):
-        add(cust_text.sketch)
+        insert(cust_text.sketch)
 
-cmpd = Compound.make_compound(
+cmpd = Compound(
     [three_d.part, two.sketch, one.line, build.sketch, extension_lines.line]
 )
 
@@ -106,3 +112,5 @@ show_object(cmpd, name="compound")
 # show_object(three_d.part.wrapped, name="three_d")
 # show_object(extension_lines.line.wrapped, name="extension_lines")
 # show_object(build.sketch.wrapped, name="build")
+
+# [End]

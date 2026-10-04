@@ -25,8 +25,31 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
-from enum import Enum, auto
+
+import sys
+from enum import Enum, IntEnum, auto, unique
+from typing import TypeAlias
+
+from OCP.GccEnt import (
+    GccEnt_enclosed,
+    GccEnt_enclosing,
+    GccEnt_outside,
+    GccEnt_unqualified,
+)
+
+# enum.StrEnum arrived in 3.11 and build123d supports 3.10; drop this when the
+# minimum version moves up
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+
+    class StrEnum(str, Enum):
+        """Polyfill for Python < 3.11 StrEnum behavior."""
+
+        def __str__(self) -> str:
+            return self.value
 
 
 class Align(Enum):
@@ -35,9 +58,15 @@ class Align(Enum):
     MIN = auto()
     CENTER = auto()
     MAX = auto()
+    NONE = None
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"
+
+
+Align2D: TypeAlias = Align | None | tuple[Align | None, Align | None]
+
+Align3D: TypeAlias = Align | None | tuple[Align | None, Align | None, Align | None]
 
 
 class ApproxOption(Enum):
@@ -61,12 +90,104 @@ class AngularDirection(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class BendPosition(Enum):
+    """Where a bend sits relative to its bend line
+
+    A bend line marks a position on the sheet; this names the feature of the
+    formed bend that lands on it. Everything else follows: the bend reaches
+    from there into the moving side, taking a strip of material with it as it
+    rolls up.
+
+    Measured back from the line toward the fixed side, the bend's near tangent
+    sits at nothing for BEND_OUTSIDE, at ``radius * tan(angle / 2)`` for
+    MATERIAL_INSIDE, at ``(radius + thickness) * tan(angle / 2)`` for
+    MATERIAL_OUTSIDE, and at half the bend's own width for CENTER. The two
+    mould lines are where the extended faces of the formed part meet, so they
+    are undefined at 180 degrees, where those faces never do.
+    """
+
+    CENTER = auto()  # the bend straddles the line
+    MATERIAL_INSIDE = auto()  # the inside mould line falls on the line
+    MATERIAL_OUTSIDE = auto()  # the outside mould line falls on the line
+    BEND_OUTSIDE = auto()  # the whole bend lies past the line
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class CenterOf(Enum):
     """Center Options"""
 
     GEOMETRY = auto()
     MASS = auto()
     BOUNDING_BOX = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+@unique
+class ContinuityLevel(IntEnum):
+    """
+    Continuity level for evaluating geometric connections.
+
+    Used to determine how smoothly adjacent geometry joins together,
+    such as at shared vertices between edges or shared edges between faces.
+
+    Levels:
+
+    - C0 (G0): Positional continuity—elements meet at a point but may have sharp angles.
+    - C1 (G1): Tangent continuity—elements have the same tangent direction at the junction.
+    - C2 (G2): Curvature continuity—elements have matching curvature at the junction.
+
+    These levels correspond to common CAD definitions and are compatible with OCCT's GeomAbs_Shape.
+    """
+
+    C0 = 0
+    C1 = 1
+    C2 = 2
+
+
+class Convexity(Enum):
+    """How the material of a shape sits around one of its elements.
+
+    Classifies a vertex, edge or face relative to the shape it was selected
+    from - it is a property of that relationship, not of the element alone.
+    A straight edge is convex on a box, concave at the inner corner of an L,
+    and smooth where a fillet meets the face it blends into.
+
+    - CONVEX: the material closes around the element by less than half a
+      turn - the outer edge of a box, the corner of a plate, a boss
+    - CONCAVE: by more than half a turn - the inner corner of a pocket, a hole
+    - SMOOTH: the boundary passes through without bending - a fillet seam, a
+      planar face, a vertex where two edges meet in line
+    - SADDLE: both senses are present - an edge whose dihedral angle crosses
+      half a turn along its length, a vertex where convex and concave edges
+      meet, a face with principal curvatures of opposite sign
+    """
+
+    CONVEX = auto()
+    CONCAVE = auto()
+    SMOOTH = auto()
+    SADDLE = auto()
+
+
+class Extrinsic(Enum):
+    """Order to apply extrinsic rotations by axis"""
+
+    XYZ = auto()
+    XZY = auto()
+    YZX = auto()
+    YXZ = auto()
+    ZXY = auto()
+    ZYX = auto()
+
+    XYX = auto()
+    XZX = auto()
+    YZY = auto()
+    YXY = auto()
+    ZXZ = auto()
+    ZYZ = auto()
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"
@@ -106,12 +227,71 @@ class GeomType(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class HeadType(Enum):
+    """Arrow head types"""
+
+    STRAIGHT = auto()
+    CURVED = auto()
+    FILLETED = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class HemType(Enum):
+    """Sheet metal hem styles"""
+
+    FLAT = auto()  # 180° fold flat onto the sheet
+    OPEN = auto()  # 180° fold with a gap (opening)
+    TEARDROP = auto()  # teardrop profile fold
+    ROLLED = auto()  # open rolled curl, no flat leg
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class SheetSurface(Enum):
+    """Reference surface represented by a sheet-metal shell"""
+
+    INSIDE = auto()
+    OUTSIDE = auto()
+    MID = auto()
+    NEUTRAL = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class Intrinsic(Enum):
+    """Order to apply intrinsic rotations by axis"""
+
+    XYZ = auto()
+    XZY = auto()
+    YZX = auto()
+    YXZ = auto()
+    ZXY = auto()
+    ZYX = auto()
+
+    XYX = auto()
+    XZX = auto()
+    YZY = auto()
+    YXY = auto()
+    ZXZ = auto()
+    ZYZ = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class Keep(Enum):
     """Split options"""
 
-    TOP = auto()
+    ALL = auto()
     BOTTOM = auto()
     BOTH = auto()
+    INSIDE = auto()
+    OUTSIDE = auto()
+    TOP = auto()
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"
@@ -141,12 +321,46 @@ class Mode(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class FlangeLength(Enum):
+    """Where a flange's length is measured from
+
+    A drawing gives a flange's length one of three ways, and this names which.
+    TANGENT measures from the bend's tangent line, so the length is the flat
+    wall alone. The two virtual sharps are the corners the formed part would
+    have if it were folded sharp - where the extended inner faces meet for
+    INNER_SHARP and the extended outer faces for OUTER_SHARP - so a length
+    measured from one is the overall size the drawing dimensions. The sharps
+    sit ``radius * tan(angle / 2)`` and ``(radius + thickness) * tan(angle / 2)``
+    past the tangent line, and are undefined at 180 degrees, where the faces
+    never meet.
+    """
+
+    TANGENT = auto()  # from the bend tangent line: the flat wall
+    INNER_SHARP = auto()  # from the inner virtual sharp
+    OUTER_SHARP = auto()  # from the outer virtual sharp
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class FontStyle(Enum):
     """Text Font Styles"""
 
     REGULAR = auto()
     BOLD = auto()
     ITALIC = auto()
+    BOLDITALIC = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class Sagitta(Enum):
+    """Sagitta selection"""
+
+    SHORT = 0
+    LONG = -1
+    BOTH = 1
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"
@@ -175,6 +389,50 @@ class MeshType(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class NumberDisplay(Enum):
+    """Methods for displaying numbers"""
+
+    DECIMAL = auto()
+    FRACTION = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class PageSize(Enum):
+    """Align object about Axis"""
+
+    A0 = auto()
+    A1 = auto()
+    A2 = auto()
+    A3 = auto()
+    A4 = auto()
+    A5 = auto()
+    A6 = auto()
+    A7 = auto()
+    A8 = auto()
+    A9 = auto()
+    A10 = auto()
+    LETTER = auto()
+    LEGAL = auto()
+    LEDGER = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class Tangency(Enum):
+    """Tangency constraint for solvers edge selection"""
+
+    UNQUALIFIED = GccEnt_unqualified
+    ENCLOSING = GccEnt_enclosing
+    ENCLOSED = GccEnt_enclosed
+    OUTSIDE = GccEnt_outside
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class PositionMode(Enum):
     """Position along curve mode"""
 
@@ -185,8 +443,61 @@ class PositionMode(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class PrecisionMode(Enum):
+    """
+    When you export a model to a STEP file, the precision of the geometric data
+    (such as the coordinates of points, the definitions of curves and surfaces, etc.)
+    can significantly impact the file size and the fidelity of the model when it is
+    imported into another CAD system. Higher precision means that the geometric
+    data is described with more detail, which can improve the accuracy of the model
+    in the target system but can also increase the file size.
+    """
+
+    SESSION = 2
+    GREATEST = 1
+    AVERAGE = 0
+    LEAST = -1
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class ReliefType(Enum):
+    """Sheet metal relief shapes
+
+    Each value names a shape, not a placement: an operation decides where the
+    shape sits and which way it points, so the same value covers a corner and
+    a bend end. SQUARE means square-cornered rather than equal-sided, since
+    only some operations have a symmetry that makes the sides equal.
+
+    ROUND, SQUARE and OBROUND are cut in the flat pattern, so they keep their
+    shape on the developed blank. CONSTANT_WIDTH is defined by the formed part
+    instead - it continues the gap the flanges already leave - so its width is
+    measured from the sheet rather than supplied. That makes it meaningful only
+    where two flanges meet, so ``corner_relief`` accepts it and other relief
+    operations do not.
+    """
+
+    ROUND = auto()  # circle
+    SQUARE = auto()  # square-cornered, aligned to the fold lines
+    OBROUND = auto()  # slot with rounded ends
+    CONSTANT_WIDTH = auto()  # continues the flange gap through a corner
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class Select(Enum):
-    """Selector scope - all, last operation or new objects"""
+    """How much of a shape a selector returns.
+
+    - ALL: every feature of the kind
+    - LAST: the features the last operation brought in or created; a feature it
+      merely rebuilt is not included
+    - NEW: only the features that existed in no input of the last operation
+
+    LAST and NEW read the record an operation leaves on its result, so they work
+    on builders and on the shapes Algebra mode operations return alike.
+    """
 
     ALL = auto()
     LAST = auto()
@@ -220,6 +531,20 @@ class SortBy(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class TextAlign(Enum):
+    """Text Alignment"""
+
+    BOTTOM = auto()
+    CENTER = auto()
+    LEFT = auto()
+    RIGHT = auto()
+    TOP = auto()
+    TOPFIRSTLINE = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class Transition(Enum):
     """Sweep discontinuity handling option"""
 
@@ -231,15 +556,18 @@ class Transition(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
-class Unit(Enum):
+class Unit(StrEnum):
     """Standard Units"""
 
-    MC = auto()  # MICRO
-    MM = auto()  # MILLIMETER
-    CM = auto()  # CENTIMETER
-    M = auto()  # METER
-    IN = auto()  # INCH
-    FT = auto()  # FOOT
+    MC = "µm"  # MICRO
+    MM = "mm"  # MILLIMETER
+    CM = "cm"  # CENTIMETER
+    M = "m"  # METER
+    IN = "in"  # INCH
+    FT = "ft"  # FOOT
+    G = "g"  # GRAM
+    KG = "kg"  # KILOGRAM
+    LB = "lb"  # POUND
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"

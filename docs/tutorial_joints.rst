@@ -5,31 +5,7 @@ Joint Tutorial
 ##############
 
 This tutorial provides a step by step guide in using :class:`~topology.Joint`'s as we create
-a box with a hinged lid. They allow Solid and Compound objects to be arranged
-relative to each other in an intuitive manner - with the same degree of motion
-that is found with the equivalent physical joints.  :class:`~topology.Joint`'s always work
-in pairs - a :class:`~topology.Joint` can only be connected to another :class:`~topology.Joint` as follows:
-
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-| :class:`~topology.Joint`              | connect_to                                                          | Example            |
-+=======================================+=====================================================================+====================+
-| :class:`~topology.BallJoint`          |  :class:`~topology.RigidJoint`                                      | Gimbal             |
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-| :class:`~topology.CylindricalJoint`   |  :class:`~topology.RigidJoint`                                      | Screw              |
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-| :class:`~topology.LinearJoint`        | :class:`~topology.RigidJoint`, :class:`~topology.RevoluteJoint`     | Slider or Pin Slot |
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-| :class:`~topology.RevoluteJoint`      | :class:`~topology.RigidJoint`                                       | Hinge              |
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-| :class:`~topology.RigidJoint`         | :class:`~topology.RigidJoint`                                       | Fixed              |
-+---------------------------------------+---------------------------------------------------------------------+--------------------+
-
-Objects may have many joints bound to them each with an identifying label. All :class:`~topology.Joint`
-objects have a ``symbol`` property that can be displayed to help visualize
-their position and orientation.
-
-In this tutorial, a box with a hinged lid will be created to illustrate the
-use of three different :class:`~topology.Joint` types.
+a box with a hinged lid to illustrate the use of three different :class:`~topology.Joint` types.
 
 .. image:: assets/tutorial_joint.svg
     :align: center
@@ -43,6 +19,7 @@ Before getting to the CAD operations, this selector script needs to import the b
 environment.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [import]
     :end-before: [Hinge Class]
 
@@ -56,6 +33,7 @@ tutorial is the joints and not the CAD operations to create objects, this code i
 described in detail.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Hinge Class]
     :end-before: [Create the Joints]
 
@@ -86,6 +64,7 @@ The first joint to add is a :class:`~topology.RigidJoint` that is used to fix th
 or lid.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Create the Joints]
     :end-before: [Hinge Axis]
 
@@ -102,9 +81,10 @@ The second joint to add is either a :class:`~topology.RigidJoint` (on the inner 
 (on the outer leaf) that describes the hinge axis.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Create the Joints]
     :end-before: [Fastener holes]
-    :emphasize-lines: 10-25
+    :emphasize-lines: 10-24
 
 The inner leaf just pivots around the outer leaf and therefore the simple :class:`~topology.RigidJoint` is
 used to define the Location of this pivot.  The outer leaf contains the more complex
@@ -120,6 +100,7 @@ The third set of joints to add are :class:`~topology.CylindricalJoint`'s that de
 screws used to attach the leaves move.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Fastener holes]
     :end-before: [End Fastener holes]
 
@@ -139,6 +120,7 @@ Step 3d: Call Super
 To finish off, the base class for the Hinge class is initialized:
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [End Fastener holes]
     :end-before: [Hinge Class]
 
@@ -149,6 +131,7 @@ Now that the Hinge class is complete it can be used to instantiate the two hinge
 required to attach the box and lid together.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Create instances of the two leaves of the hinge]
     :end-before: [Create the box with a RigidJoint to mount the hinge]
 
@@ -163,9 +146,10 @@ the joint used to attach the outer hinge leaf.
     :align: center
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Create the box with a RigidJoint to mount the hinge]
     :end-before: [Demonstrate that objects with Joints can be moved and the joints follow]
-    :emphasize-lines: 13-17
+    :emphasize-lines: 13-16
 
 Since the hinge will be fixed to the box another :class:`~topology.RigidJoint` is used mark where the hinge
 will go. Note that the orientation of this :class:`~topology.Joint` will control how the hinge leaf is
@@ -181,6 +165,7 @@ having to recreate or modify :class:`~topology.Joint`'s. Here is the box is move
 property.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Demonstrate that objects with Joints can be moved and the joints follow]
     :end-before: [The lid with a RigidJoint for the hinge]
 
@@ -194,9 +179,10 @@ Much like the box, the lid is created in a :class:`~build_part.BuildPart` contex
     :align: center
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [The lid with a RigidJoint for the hinge]
     :end-before: [A screw to attach the hinge to the box]
-    :emphasize-lines: 6-10
+    :emphasize-lines: 6-9
 
 Again, the original orientation of the lid and hinge inner leaf are not important, when the
 joints are connected together the parts will move into the correct position.
@@ -209,10 +195,13 @@ Step 6: Import a Screw and bind a Joint to it
 :class:`~topology.Joint`'s can be bound to simple objects the a :class:`~topology.Compound` imported - in this case a
 screw.
 
+- screw STEP model: :download:`M6-1x12-countersunk-screw.step <M6-1x12-countersunk-screw.step>`
+
 .. image:: assets/tutorial_joint_m6_screw.svg
     :align: center
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [A screw to attach the hinge to the box]
     :end-before: [End of screw creation]
 
@@ -232,6 +221,7 @@ Step 7a: Hinge to Box
 To start, the outer hinge leaf will be connected to the box, as follows:
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Connect Box to Outer Hinge]
     :end-before: [Connect Box to Outer Hinge]
 
@@ -249,6 +239,7 @@ Next, the hinge inner leaf is connected to the hinge outer leaf which is attache
 box.
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Connect Hinge Leaves]
     :end-before: [Connect Hinge Leaves]
 
@@ -265,6 +256,7 @@ Step 7c: Lid to Hinge
 Now the ``lid`` is connected to the ``hinge_inner``:
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Connect Hinge to Lid]
     :end-before: [Connect Hinge to Lid]
 
@@ -282,6 +274,7 @@ Step 7d: Screw to Hinge
 The last step in this example is to place a screw in one of the hinges:
 
 .. literalinclude:: tutorial_joints.py
+    :language: build123d
     :start-after: [Connect Screw to Hole]
     :end-before: [Connect Screw to Hole]
 
@@ -316,4 +309,11 @@ and ``other`` will move to the appropriate :class:`~geometry.Location`.
     .. code:: python
 
         show_object(m6_joint.symbol, name="m6 screw symbol")
+
+    or, with the ocp_vscode viewer
+
+    .. code:: python
+
+        show(box, render_joints=True)
+
 

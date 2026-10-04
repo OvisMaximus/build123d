@@ -12,6 +12,7 @@
 #
 import os
 import sys
+import build123d
 
 build123d_path = os.path.dirname(os.path.abspath(os.getcwd()))
 source_files_path = os.path.join(build123d_path, "src", "build123d")
@@ -27,11 +28,8 @@ copyright = "2022, Gumyr"
 author = "Gumyr"
 
 # The full version, including alpha/beta/rc tags
-with open(os.path.join(build123d_path, "pyproject.toml")) as f:
-    pyproject_toml = f.readlines()
-for line in pyproject_toml:
-    if "version =" in line:
-        release = line.split("=")[1].strip()
+# version = build123d.__version__
+release = build123d.__version__
 
 
 # -- General configuration ---------------------------------------------------
@@ -42,15 +40,28 @@ for line in pyproject_toml:
 extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
-    "sphinx_autodoc_typehints",
+    #    "sphinx_autodoc_typehints",
+    "sphinx.ext.autodoc.typehints",
     "sphinx.ext.doctest",
     "sphinx.ext.graphviz",
     "sphinx.ext.inheritance_diagram",
     "sphinx.ext.viewcode",
+    "sphinx_llms_txt",
     "sphinx_design",
     "sphinx_copybutton",
     "hoverxref.extension",
+    "build123d_lexer",
 ]
+
+# LLM-oriented entry points are generated alongside the HTML documentation.
+# Point their links at the rendered, canonical documentation rather than at
+# reStructuredText source files.
+llms_txt_title = "build123d Documentation"
+llms_txt_summary = (
+    "build123d is a Python CAD library built on Open CASCADE Technology. "
+    "Use this documentation for its public API, tutorials, and examples."
+)
+llms_txt_uri_template = "{base_url}{docname}.html"
 
 # Napoleon settings
 napoleon_google_docstring = True
@@ -67,14 +78,14 @@ napoleon_use_rtype = True
 napoleon_use_keyword = True
 napoleon_custom_sections = None
 
-autodoc_typehints = ["signature"]
-# autodoc_typehints = ["description"]
-# autodoc_typehints = ["both"]
+# Move type annotations off the signature and into each parameter's entry
+autodoc_typehints = "description"
 
 autodoc_default_options = {
     "members": True,
     "undoc-members": True,
     "member-order": "alphabetical",
+    "show-inheriance": False,
 }
 
 # autodoc_mock_imports = ["OCP"]
@@ -99,11 +110,16 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 #
 # html_theme = "alabaster"
 html_theme = "sphinx_rtd_theme"
+html_baseurl = os.environ.get(
+    "READTHEDOCS_CANONICAL_URL",
+    "https://build123d.readthedocs.io/en/latest/",
+)
+pygments_style = "colorful"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ["_static"]
+html_static_path = ["_static"]
 
 # -- Options for hoverxref -------------------------------------------------
 hoverxref_role_types = {
@@ -113,7 +129,7 @@ hoverxref_role_types = {
     "mod": "tooltip",  # for Python Sphinx Domain
     "class": "tooltip",  # for Python Sphinx Domain
     "meth": "tooltip",  # for Python Sphinx Domain
-    "func": "tooltip", # for Python Sphinx Domain
+    "func": "tooltip",  # for Python Sphinx Domain
 }
 
 hoverxref_roles = [
@@ -124,3 +140,6 @@ hoverxref_roles = [
 hoverxref_domains = [
     "py",
 ]
+
+html_logo = "assets/build123d_logo/logo.svg"
+html_favicon = "_static/build123d-favicon.ico"

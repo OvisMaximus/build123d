@@ -26,6 +26,7 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 from build123d import *
 
 
@@ -177,7 +178,7 @@ pts = [
 with BuildPart() as ex8:
     with BuildSketch(Plane.YZ) as ex8_sk:
         with BuildLine() as ex8_ln:
-            Polyline(*pts)
+            Polyline(pts)
             mirror(ex8_ln.line, about=Plane.YZ)
         make_face()
     extrude(amount=L)
@@ -237,7 +238,7 @@ with BuildPart() as ex11:
 ##########################################
 # 12. Defining an Edge with a Spline
 # [Ex. 12]
-sPnts = [
+pts = [
     (55, 30),
     (50, 35),
     (40, 30),
@@ -250,7 +251,7 @@ sPnts = [
 with BuildPart() as ex12:
     with BuildSketch() as ex12_sk:
         with BuildLine() as ex12_ln:
-            l1 = Spline(*sPnts)
+            l1 = Spline(pts)
             l2 = Line((55, 30), (60, 0))
             l3 = Line((60, 0), (0, 0))
             l4 = Line((0, 0), (0, 20))
@@ -287,7 +288,7 @@ with BuildPart() as ex14:
     with BuildLine() as ex14_ln:
         l1 = JernArc(start=(0, 0), tangent=(0, 1), radius=a, arc_size=180)
         l2 = JernArc(start=l1 @ 1, tangent=l1 % 1, radius=a, arc_size=-90)
-        l3 = Line(l2 @ 1, l2 @ 1 + Vector(-a, a))
+        l3 = Line(l2 @ 1, l2 @ 1 + (-a, a))
     with BuildSketch(Plane.XZ) as ex14_sk:
         Rectangle(b, b)
     sweep()
@@ -306,10 +307,10 @@ with BuildPart() as ex15:
     with BuildSketch() as ex15_sk:
         with BuildLine() as ex15_ln:
             l1 = Line((0, 0), (a, 0))
-            l2 = Line(l1 @ 1, l1 @ 1 + Vector(0, b))
-            l3 = Line(l2 @ 1, l2 @ 1 + Vector(-c, 0))
-            l4 = Line(l3 @ 1, l3 @ 1 + Vector(0, -c))
-            l5 = Line(l4 @ 1, Vector(0, (l4 @ 1).Y))
+            l2 = Line(l1 @ 1, l1 @ 1 + (0, b))
+            l3 = Line(l2 @ 1, l2 @ 1 + (-c, 0))
+            l4 = Line(l3 @ 1, l3 @ 1 + (0, -c))
+            l5 = Line(l4 @ 1, (0, (l4 @ 1).Y))
             mirror(ex15_ln.line, about=Plane.YZ)
         make_face()
     extrude(amount=c)
@@ -334,7 +335,7 @@ with BuildPart() as ex16_single:
     extrude(amount=length)
 
 with BuildPart() as ex16:
-    add(ex16_single.part)
+    insert(ex16_single.part)
     mirror(ex16_single.part, about=Plane.XY.offset(width))
     mirror(ex16_single.part, about=Plane.YX.offset(width))
     mirror(ex16_single.part, about=Plane.YZ.offset(width))
@@ -465,7 +466,7 @@ pts = [
 with BuildPart() as ex23:
     with BuildSketch(Plane.XZ) as ex23_sk:
         with BuildLine() as ex23_ln:
-            l1 = Polyline(*pts)
+            l1 = Polyline(pts)
             l2 = Line(l1 @ 1, l1 @ 0)
         make_face()
         with Locations((0, 35)):
@@ -573,7 +574,7 @@ with BuildPart() as ex29:
         with BuildLine() as ex29_ow_ln:
             l1 = Line((0, 0), (0, w / 2))
             l2 = ThreePointArc(l1 @ 1, (L / 2.0, w / 2.0 + t), (L, w / 2.0))
-            l3 = Line(l2 @ 1, Vector((l2 @ 1).X, 0, 0))
+            l3 = Line(l2 @ 1, ((l2 @ 1).X, 0, 0))
             mirror(ex29_ow_ln.line)
         make_face()
     extrude(amount=h + b)
@@ -614,8 +615,8 @@ wts = [
 with BuildPart() as ex30:
     with BuildSketch() as ex30_sk:
         with BuildLine() as ex30_ln:
-            l0 = Polyline(*pts)
-            l1 = Bezier(*pts, weights=wts)
+            l0 = Polyline(pts)
+            l1 = Bezier(pts, weights=wts)
         make_face()
     extrude(amount=10)
     # [Ex. 30]
@@ -652,7 +653,7 @@ with BuildPart() as ex32:
         with PolarLocations(a / 2, 6):
             RegularPolygon(b, 4)
     for idx, obj in enumerate(ex32_sk.sketch.faces()):
-        add(obj)
+        insert(obj)
         extrude(amount=c + 3 * idx)
     # [Ex. 32]
     write_svg()
@@ -676,9 +677,9 @@ with BuildPart() as ex33:
     with BuildSketch(mode=Mode.PRIVATE) as ex33_sk:
         locs = PolarLocations(a / 2, 6)
         for i, j in enumerate(locs):
-            add(square(b + 2 * i, j))
+            insert(square(b + 2 * i, j))
     for idx, obj in enumerate(ex33_sk.sketch.faces()):
-        add(obj)
+        insert(obj)
         extrude(amount=c + 2 * idx)
     # [Ex. 33]
     write_svg()
@@ -743,3 +744,41 @@ with BuildPart() as ex36:
     write_svg()
 
 # show_object(ex36.part)
+
+##########################################
+# 37. Positioning Sketches Within a Plane
+# [Ex. 37]
+with BuildPart() as ex37:
+    with BuildSketch() as ex37_sk:
+        Rectangle(1, 2, align=(Align.CENTER, Align.MIN))
+    with BuildSketch(
+        Plane.XY.shift_origin(ex37_sk.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[0])
+    ):
+        Circle(1)
+    with BuildSketch(Plane((0.5, 2))):
+        Ellipse(0.5, 1)
+    extrude(amount=1)
+    # [Ex. 37]
+    write_svg()
+
+# show_object(ex37.part)
+
+##########################################
+# 38. Applying Rotations
+# [Ex. 38]
+length, width, height, spacing = 24, 8, 4, 30
+
+with BuildPart() as ex38:
+    with Locations(Rot(Z=20)):
+        Box(length, width, height)
+    with Locations((0, spacing)):
+        Box(length, width, height, rotation=(0, 0, 40))
+    box = Box(length, width, height, mode=Mode.PRIVATE)
+    with Locations((0, 2 * spacing)):
+        insert(box.rotate(Axis.Z, 60))
+    with BuildPart(Location((0, 3 * spacing), (0, 0, 80))):
+        Box(length, width, height)
+    # [Ex. 38]
+    write_svg()
+
+# show_object(ex38.part)

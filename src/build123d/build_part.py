@@ -28,63 +28,111 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 
-from typing import Union
+from typing import ClassVar
 
 from build123d.build_common import Builder, logger
 from build123d.build_enums import Mode
+from build123d.build_sheet import BuildSheet
 from build123d.geometry import Location, Plane
-from build123d.topology import Edge, Face, Part, Solid, Wire
+from build123d.sheet_utils import SheetMetalParameters
+from build123d.topology import Edge, Face, Joint, Part, Shape, Shell, Solid, Wire
 
 
-class BuildPart(Builder):
+class BuildPart(Builder[Part]):
     """BuildPart
 
     The BuildPart class is another subclass of Builder for building parts
     (objects with the property of volume) from sketches or 3D objects.
     It has an _obj property that returns the current part being built, and
-    several pending lists for storing faces, edges, and planes that will be
-    integrated into the final part later. The class overrides the _add_to_pending
-    method of Builder.
+    several pending lists for storing faces, edges, planes, and sheet-metal
+    shells that will be integrated into the final part later. The class
+    overrides the _add_to_pending method of Builder.
 
     Args:
-        workplanes (Plane, optional): initial plane to work on. Defaults to Plane.XY.
+        placements (Plane, optional): output placement(s). Defaults to Plane.XY.
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
     """
 
+    build123d_type: ClassVar[str] = "BuildPart"
     _tag = "BuildPart"  # Alternate for __class__.__name__
     _obj_name = "part"  # Name of primary instance variable
     _shape = Solid  # Type of shapes being constructed
     _sub_class = Part  # Class of part/_obj
 
+    def __init__(
+        self,
+        *placements: Face | Plane | Location,
+        mode: Mode = Mode.ADD,
+    ):
+        self.joints: dict[str, Joint] = {}
+        self._part: Part | None = None  # Use a private attribute
+        self.pending_faces: list[Face] = []
+        self.pending_face_planes: list[Plane] = []
+        self.pending_planes: list[Plane] = []
+        self.pending_edges: list[Edge] = []
+        self.pending_sheets: list[tuple[Shell, SheetMetalParameters]] = []
+        super().__init__(*placements, mode=mode)
+
+    def _accept_publication(
+        self, build_product: Shape, source: Builder | None, mode: Mode
+    ) -> None:
+        """Capture a nested BuildSheet's shell as pending sheet-metal input.
+
+        The sheet parameters are read from the producing BuildSheet so that
+        construction metadata never has to ride on the published Shell.
+        """
+        if isinstance(source, BuildSheet):
+            shells = (
+                [build_product]
+                if isinstance(build_product, Shell)
+                else list(build_product.shells())
+            )
+            if shells:
+                self.pending_sheets.extend(
+                    (shell, source.sheet_parameters) for shell in shells
+                )
+                return
+        super()._accept_publication(build_product, source, mode)
+
     @property
-    def _obj(self) -> Part:
-        return self.part
+    def part(self) -> Part | None:
+        """Get the placed part."""
+        return self._output_obj()
+
+    @part.setter
+    def part(self, value: Part) -> None:
+        """Set the current part"""
+        self._part = value
+
+    @property
+    def part_local(self) -> Part | None:
+        """Get the part in the Builder's local construction coordinates."""
+        return self._part
+
+    @property
+    def _obj(self) -> Part | None:
+        """Alias _obj to part"""
+        return self._part
 
     @_obj.setter
     def _obj(self, value: Part) -> None:
-        self.part = value
+        """Set the current part"""
+        self._part = value
 
     @property
     def pending_edges_as_wire(self) -> Wire:
         """Return a wire representation of the pending edges"""
         return Wire.combine(self.pending_edges)[0]
 
-    def __init__(
-        self,
-        *workplanes: Union[Face, Plane, Location],
-        mode: Mode = Mode.ADD,
-    ):
-        self.part: Part = None
-        self.initial_planes = workplanes
-        self.pending_faces: list[Face] = []
-        self.pending_face_planes: list[Plane] = []
-        self.pending_planes: list[Plane] = []
-        self.pending_edges: list[Edge] = []
-        super().__init__(*workplanes, mode=mode)
+    @property
+    def location(self) -> Location:
+        """Builder's location"""
+        return self.part.location if self.part is not None else Location()
 
-    def _add_to_pending(self, *objects: Union[Edge, Face], face_plane: Plane = None):
+    def _add_to_pending(self, *objects: Edge | Face, face_plane: Plane | None = None):
         """Add objects to BuildPart pending lists
 
         Args:
@@ -98,7 +146,8 @@ class BuildPart(Builder):
                 face_plane,
             )
             self.pending_faces.append(face)
-            self.pending_face_planes.append(face_plane)
+            if face_plane is not None:
+                self.pending_face_planes.append(face_plane)
 
         new_edges = [o for o in objects if isinstance(o, Edge)]
         for edge in new_edges:
@@ -107,3 +156,10 @@ class BuildPart(Builder):
                 edge.location,
             )
             self.pending_edges.append(edge)
+
+    def _exit_extras(self):
+        """Transfer joints on exit"""
+        if self.joints:
+            self.part_local.joints = self.joints
+            for joint in self.part_local.joints.values():
+                joint.parent = self.part_local

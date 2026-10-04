@@ -27,7 +27,9 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 from build123d import *
+from ocp_vscode import show
 
 
 class Club(BaseSketchObject):
@@ -151,7 +153,7 @@ with BuildPart() as box_builder:
 box = box_builder.part
 
 with BuildPart() as lid_builder:
-    add(box_plan.sketch)
+    insert(box_plan.sketch)
     extrude(amount=pocket_t / 2 + bottom_t)
     with BuildSketch() as pocket:
         offset(box_plan.sketch, amount=-(wall_t - lip_t), mode=Mode.ADD)
@@ -169,6 +171,4 @@ with BuildPart() as lid_builder:
     extrude(amount=-wall_t, mode=Mode.SUBTRACT)
 lid = lid_builder.part.moved(Location((0, 0, (wall_t + pocket_t) / 2)))
 
-if "show_object" in locals():
-    show_object(box, name="box")
-    show_object(lid, name="lid", options={"alpha": 0.6})
+show(box, lid, names=["box", "lid"], alphas=[1.0, 0.6])

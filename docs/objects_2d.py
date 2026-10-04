@@ -131,7 +131,7 @@ svg.add_layer("dashed", line_type=LineType.DASHED)
 svg.add_shape(
     Edge.make_circle(
         0.75,
-        Plane(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[0].to_tuple()),
+        Plane(tuple(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[0])),
         start_angle=0,
         end_angle=80,
     ),
@@ -188,10 +188,36 @@ visible, hidden = controller.part.project_to_viewport((70, -50, 120))
 max_dimension = max(*Compound(children=visible + hidden).bounding_box().size)
 exporter = ExportSVG(scale=100 / max_dimension)
 exporter.add_layer("Visible")
-exporter.add_layer("Hidden", line_color=(99, 99, 99), line_type=LineType.ISO_DOT)
+exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
 exporter.add_shape(visible, layer="Visible")
 exporter.add_shape(hidden, layer="Hidden")
 exporter.write(f"assets/controller.svg")
+
+d = Draft(line_width=0.1)
+# [Ex. 15]
+with BuildSketch() as isosceles_triangle:
+    t = Triangle(a=30, b=40, c=40)
+    # [Ex. 15]
+    ExtensionLine(t.edges().sort_by(Axis.Y)[0], 6, d, label="a")
+    ExtensionLine(t.edges().sort_by(Axis.X)[-1], 6, d, label="b")
+    ExtensionLine(t.edges().sort_by(SortBy.LENGTH)[-1], 6, d, label="c")
+a1 = CenterArc(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[0], 5, 0, t.B)
+a2 = CenterArc(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[-1], 5, 180 - t.C, t.C)
+a3 = CenterArc(t.vertices().sort_by(Axis.Y)[-1], 5, 270 - t.A / 2, t.A)
+p1 = CenterArc(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[0], 8, 0, t.B)
+p2 = CenterArc(t.vertices().group_by(Axis.Y)[0].sort_by(Axis.X)[-1], 8, 180 - t.C, t.C)
+p3 = CenterArc(t.vertices().sort_by(Axis.Y)[-1], 8, 270 - t.A / 2, t.A)
+t1 = Text("B", font_size=d.font_size).moved(Pos(p1 @ 0.5))
+t2 = Text("C", font_size=d.font_size).moved(Pos(p2 @ 0.5))
+t3 = Text("A", font_size=d.font_size).moved(Pos(p3 @ 0.5))
+
+s = 100 / max(*isosceles_triangle.sketch.bounding_box().size)
+svg = ExportSVG(scale=s)
+svg.add_layer("dashed", line_type=LineType.DASHED)
+svg.add_shape([a1, a2, a3], "dashed")
+svg.add_shape(isosceles_triangle.sketch)
+svg.add_shape([t1, t2, t3])
+svg.write("assets/triangle_example.svg")
 
 
 # [Align]
@@ -242,9 +268,9 @@ with BuildSketch() as align:
         Text("MAX", font="FreeSerif", font_size=0.07)
     # Bottom Center: (CENTER, MAX)
     with Locations((0.0, -0.75 + 0.07 / 2)):
-        Text("MAX", font="FreeSerif", font_size=0.07)
-    with Locations((0.0, -0.75 - 0.07 / 2)):
         Text("CENTER", font="FreeSerif", font_size=0.07)
+    with Locations((0.0, -0.75 - 0.07 / 2)):
+        Text("MAX", font="FreeSerif", font_size=0.07)
     # Bottom Left: (MAx, MAX)
     with Locations((-0.75, -0.75)):
         Text("MAX\nMAX", font="FreeSerif", font_size=0.07)
@@ -253,3 +279,70 @@ s = 100 / max(*align.sketch.bounding_box().size)
 svg = ExportSVG(scale=s)
 svg.add_shape(align.sketch)
 svg.write("assets/align.svg")
+
+# [DimensionLine]
+std = Draft()
+with BuildSketch() as d_line:
+    Rectangle(100, 100)
+    c = Circle(45, mode=Mode.SUBTRACT)
+    DimensionLine([c.edge() @ 0, c.edge() @ 0.5], draft=std)
+s = 100 / max(*d_line.sketch.bounding_box().size)
+svg = ExportSVG(scale=s)
+svg.add_shape(d_line.sketch)
+svg.write("assets/d_line.svg")
+
+# [ExtensionLine]
+with BuildSketch() as e_line:
+    with BuildLine():
+        l1 = Polyline((20, 40), (-40, 40), (-40, -40), (20, -40))
+        RadiusArc(l1 @ 0, l1 @ 1, 50)
+    make_face()
+    ExtensionLine(border=e_line.edges().sort_by(Axis.X)[0], offset=10, draft=std)
+    outside_curve = e_line.edges().sort_by(Axis.X)[-1]
+    ExtensionLine(border=outside_curve, offset=10, label_angle=True, draft=std)
+s = 100 / max(*e_line.sketch.bounding_box().size)
+svg = ExportSVG(scale=s)
+svg.add_shape(e_line.sketch)
+svg.write("assets/e_line.svg")
+
+# [TechnicalDrawing]
+with BuildSketch() as tech_drawing:
+    with Locations((0, 20)):
+        insert(e_line)
+    TechnicalDrawing()
+s = 100 / max(*tech_drawing.sketch.bounding_box().size)
+svg = ExportSVG(scale=s)
+svg.add_shape(tech_drawing.sketch)
+svg.write("assets/tech_drawing.svg")
+
+# [ArrowHead]
+arrow_head_types = [HeadType.CURVED, HeadType.STRAIGHT, HeadType.FILLETED]
+arrow_heads = [ArrowHead(50, a_type) for a_type in arrow_head_types]
+s = 100 / max(*arrow_heads[0].bounding_box().size)
+svg = ExportSVG(scale=s)
+for i, arrow_head in enumerate(arrow_heads):
+    svg.add_shape(arrow_head.moved(Location((0, -i * 40))))
+    svg.add_shape(Text(arrow_head_types[i].name, 5).moved(Location((-25, -i * 40))))
+svg.write("assets/arrow_head.svg")
+
+# [Arrow]
+arrow = Arrow(
+    10, shaft_path=Edge.make_circle(100, start_angle=0, end_angle=10), shaft_width=1
+)
+s = 100 / max(*arrow.bounding_box().size)
+svg = ExportSVG(scale=s)
+svg.add_shape(arrow)
+svg.write("assets/arrow.svg")
+
+# [Superellipse]
+spacing = 35
+superellipse_orders = [0.5, 1.5, 4]
+superellipse_names = ["Astroid", "Rhoncle", "Squircle"]
+superellipse_colors = [(255, 128, 255), (128, 255, 255), (255, 255, 128)]
+superellipses = [Superellipse(40, 30, order) for order in superellipse_orders]
+s = 100 / max(*superellipses[0].bounding_box().size)
+svg = ExportSVG(scale=s)
+for i, superellipse in enumerate(superellipses):
+    svg.add_shape(superellipse.moved(Location((0, -i * spacing))))
+    svg.add_shape(Text(superellipse_names[i], 5).moved(Location((0, -i * spacing))))
+svg.write("assets/superellipse_example.svg")

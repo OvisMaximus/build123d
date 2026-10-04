@@ -1,17 +1,40 @@
 version: 2
 
+formats:
+  - epub
+  - pdf
+
 build:
-  os: "ubuntu-20.04"
+  os: "ubuntu-22.04"
   tools:
-    python: "3.9"
+    python: "3.11"
   apt_packages:
     - graphviz
+  jobs:
+    post_checkout:
+      # Necessary to ensure that the development builds get a correct version tag
+      - git fetch --unshallow || true
+      # Cancel PR build if no documentation-relevant files changed
+      - |
+        if [ "$READTHEDOCS_VERSION_TYPE" = "external" ]; then
+          TARGET_BRANCH="${READTHEDOCS_BASE_REVISION:-origin/dev}"
+          if git diff --quiet "$TARGET_BRANCH" -- \
+              docs/ \
+              examples/ \
+              pyproject.toml \
+              .readthedocs.yaml; then
+            echo "No documentation-relevant changes detected. Skipping build."
+            exit 183
+          fi
+        fi
 
 # Build from the docs/ directory with Sphinx
 sphinx:
   configuration: docs/conf.py
 
-# Explicitly set the version of Python and its requirements
 python:
   install:
-    - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs

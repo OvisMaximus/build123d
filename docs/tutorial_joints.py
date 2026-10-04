@@ -24,6 +24,7 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 # [import]
 from build123d import *
 from ocp_vscode import *
@@ -86,7 +87,7 @@ class Hinge(Compound):
                     align=(Align.CENTER, Align.CENTER, Align.MIN),
                 )
             fillet(
-                pin_head.edges(Select.LAST).filter_by(GeomType.CIRCLE),
+                pin.edges(Select.LAST).filter_by(GeomType.CIRCLE),
                 radius=pin_diameter / 3,
             )
 
@@ -117,7 +118,7 @@ class Hinge(Compound):
                 ) as pin_center:
                     Circle(pin_diameter / 2 + 0.1 * MM, mode=Mode.SUBTRACT)
             extrude(amount=length)
-            add(hinge_profile.part, rotation=(90, 0, 0), mode=Mode.INTERSECT)
+            insert(hinge_profile.part, rotation=(90, 0, 0), mode=Mode.INTERSECT)
 
             # Create holes for fasteners
             with Locations(leaf_builder.part.faces().filter_by(Axis.Y)[-1]):
@@ -126,14 +127,13 @@ class Hinge(Compound):
             # Add the hinge pin to the external leaf
             if not inner:
                 with Locations(pin_center.locations[0]):
-                    add(pin.part)
+                    insert(pin.part)
 
             # [Create the Joints]
             #
             # Leaf attachment
             RigidJoint(
                 label="leaf",
-                to_part=leaf_builder.part,
                 joint_location=Location(
                     (width - barrel_diameter, 0, length / 2), (90, 0, 0)
                 ),
@@ -142,13 +142,13 @@ class Hinge(Compound):
             if inner:
                 RigidJoint(
                     "hinge_axis",
-                    leaf_builder.part,
-                    Location((width - barrel_diameter / 2, barrel_diameter / 2, 0)),
+                    joint_location=Location(
+                        (width - barrel_diameter / 2, barrel_diameter / 2, 0)
+                    ),
                 )
             else:
                 RevoluteJoint(
                     "hinge_axis",
-                    leaf_builder.part,
                     axis=Axis(
                         (width - barrel_diameter / 2, barrel_diameter / 2, 0), (0, 0, 1)
                     ),
@@ -159,13 +159,11 @@ class Hinge(Compound):
             for hole, hole_location in enumerate(hole_locations):
                 CylindricalJoint(
                     label="hole" + str(hole),
-                    to_part=leaf_builder.part,
-                    axis=hole_location.to_axis(),
+                    axis=Axis(hole_location),
                     linear_range=(-2 * CM, 2 * CM),
                     angular_range=(0, 360),
                 )
             # [End Fastener holes]
-
         super().__init__(leaf_builder.part.wrapped, joints=leaf_builder.part.joints)
         # [Hinge Class]
 
@@ -202,10 +200,8 @@ with BuildPart() as box_builder:
             Hole(3 * MM, 1 * CM)
     RigidJoint(
         "hinge_attachment",
-        box_builder.part,
-        Location((-15 * CM, 0, 4 * CM), (180, 90, 0)),
+        joint_location=Location((-15 * CM, 0, 4 * CM), (180, 90, 0)),
     )
-
 # [Demonstrate that objects with Joints can be moved and the joints follow]
 box = box_builder.part.moved(Location((0, 0, 5 * CM)))
 
@@ -217,8 +213,7 @@ with BuildPart() as lid_builder:
             Hole(3 * MM, 1 * CM)
     RigidJoint(
         "hinge_attachment",
-        lid_builder.part,
-        Location((0, 0, 0), (0, 0, 180)),
+        joint_location=Location((0, 0, 0), (0, 0, 180)),
     )
 lid = lid_builder.part
 
@@ -235,7 +230,7 @@ def write_svg(part, filename: str, view_port_origin=(-100, 100, 150)):
     max_dimension = max(*Compound(children=visible + hidden).bounding_box().size)
     exporter = ExportSVG(scale=100 / max_dimension)
     exporter.add_layer("Visible")
-    exporter.add_layer("Hidden", line_color=(99, 99, 99), line_type=LineType.ISO_DOT)
+    exporter.add_layer("Hidden", line_color=0x636363, line_type=LineType.ISO_DOT)
     exporter.add_shape(visible, layer="Visible")
     exporter.add_shape(hidden, layer="Hidden")
     exporter.write(f"assets/{filename}.svg")
@@ -244,11 +239,11 @@ def write_svg(part, filename: str, view_port_origin=(-100, 100, 150)):
 #
 # SVG Export options
 write_svg(
-    Compound.make_compound([box, box.joints["hinge_attachment"].symbol]),
+    Compound([box, box.joints["hinge_attachment"].symbol]),
     "tutorial_joint_box",
 )
 write_svg(
-    Compound.make_compound(
+    Compound(
         [
             hinge_inner,
             hinge_inner.joints["leaf"].symbol,
@@ -262,7 +257,7 @@ write_svg(
     (100, 100, -50),
 )
 write_svg(
-    Compound.make_compound(
+    Compound(
         [
             hinge_outer,
             hinge_outer.joints["leaf"].symbol,
@@ -276,17 +271,17 @@ write_svg(
     (100, 100, -50),
 )
 write_svg(
-    Compound.make_compound([box, hinge_outer]),
+    Compound([box, hinge_outer]),
     "tutorial_joint_box_outer",
     (-100, -100, 50),
 )
 write_svg(
-    Compound.make_compound([lid, lid.joints["hinge_attachment"].symbol]),
+    Compound([lid, lid.joints["hinge_attachment"].symbol]),
     "tutorial_joint_lid",
     (-100, 100, 150),
 )
 write_svg(
-    Compound.make_compound([m6_screw, m6_joint.symbol]),
+    Compound([m6_screw, m6_joint.symbol]),
     "tutorial_joint_m6_screw",
     (-100, 100, 150),
 )
@@ -295,7 +290,7 @@ write_svg(
 box.joints["hinge_attachment"].connect_to(hinge_outer.joints["leaf"])
 # [Connect Box to Outer Hinge]
 write_svg(
-    Compound.make_compound([box, hinge_outer]),
+    Compound([box, hinge_outer]),
     "tutorial_joint_box_outer",
     (-100, -100, 50),
 )
@@ -303,7 +298,7 @@ write_svg(
 hinge_outer.joints["hinge_axis"].connect_to(hinge_inner.joints["hinge_axis"], angle=120)
 # [Connect Hinge Leaves]
 write_svg(
-    Compound.make_compound([box, hinge_outer, hinge_inner]),
+    Compound([box, hinge_outer, hinge_inner]),
     "tutorial_joint_box_outer_inner",
     (-100, -100, 50),
 )
@@ -311,7 +306,7 @@ write_svg(
 hinge_inner.joints["leaf"].connect_to(lid.joints["hinge_attachment"])
 # [Connect Hinge to Lid]
 write_svg(
-    Compound.make_compound([box, hinge_outer, hinge_inner, lid]),
+    Compound([box, hinge_outer, hinge_inner, lid]),
     "tutorial_joint_box_outer_inner_lid",
     (-100, -100, 50),
 )

@@ -6,6 +6,12 @@ Builder Common API Reference
 
 The following are common to all the builders.
 
+**********
+Attributes
+**********
+
+.. autoattribute:: build_common::Builder.label
+
 ****************
 Selector Methods
 ****************
@@ -16,6 +22,16 @@ Selector Methods
 .. automethod:: build_common::Builder.wires
 .. automethod:: build_common::Builder.solids
 
+****************
+Selector Results
+****************
+
+A selector returns a :class:`~topology.ShapeList`; ``group_by`` returns a
+``GroupBy`` holding one for each group.
+
+.. autoclass:: topology::GroupBy
+   :special-members: __getitem__
+
 *****
 Enums
 *****
@@ -23,12 +39,18 @@ Enums
 .. py:module:: build_enums
 
 .. autoclass:: Align
+.. autoclass:: BendPosition
 .. autoclass:: CenterOf
+.. autoclass:: Convexity
+.. autoclass:: FlangeLength
 .. autoclass:: FontStyle
 .. autoclass:: GeomType
+.. autoclass:: HemType
+.. autoclass:: SheetSurface
 .. autoclass:: Keep
 .. autoclass:: Kind
 .. autoclass:: Mode
+.. autoclass:: ReliefType
 .. autoclass:: Select
 .. autoclass:: SortBy
 .. autoclass:: Transition

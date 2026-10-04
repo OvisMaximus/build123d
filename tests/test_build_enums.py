@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 import unittest
 from build123d import *
 
@@ -34,22 +35,49 @@ class TestEnumRepr(unittest.TestCase):
         enums = [
             Align,
             AngularDirection,
+            ApproxOption,
             CenterOf,
+            Extrinsic,
             FontStyle,
             FrameMethod,
             GeomType,
+            HeadType,
+            Intrinsic,
             Keep,
             Kind,
+            LengthMode,
+            MeshType,
             Mode,
+            NumberDisplay,
             PositionMode,
+            PageSize,
             Select,
+            Side,
             SortBy,
             Transition,
+            TextAlign,
+            Unit,
             Until,
         ]
         for enum in enums:
             for member in enum:
                 self.assertEqual(repr(member), f"<{enum.__name__}.{member._name_}>")
+
+
+class TestSheetMetalEnums(unittest.TestCase):
+    def test_hem_type(self):
+        self.assertEqual(
+            {m.name for m in HemType},
+            {"FLAT", "OPEN", "TEARDROP", "ROLLED"},
+        )
+        self.assertEqual(repr(HemType.FLAT), "<HemType.FLAT>")
+
+    def test_sheet_surface(self):
+        self.assertEqual(
+            {m.name for m in SheetSurface},
+            {"INSIDE", "OUTSIDE", "MID", "NEUTRAL"},
+        )
+        self.assertEqual(repr(SheetSurface.INSIDE), "<SheetSurface.INSIDE>")
 
 
 if __name__ == "__main__":
